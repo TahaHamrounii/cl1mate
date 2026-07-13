@@ -13,7 +13,6 @@ import Button from '@mui/material/Button';
 import Avatar from '@mui/material/Avatar';
 import Dialog from '@mui/material/Dialog';
 import TextField from '@mui/material/TextField';
-import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -40,13 +39,14 @@ const createMarkerIcon = (color, text) =>
     iconAnchor: [14, 14],
   });
 
-const DEPOT_COORDS = [33.8075, 10.8451];
+const DEPOT_COORDS = [33.693396, 10.929588];
 
 export function DriverDashboardView() {
   const { user } = useAuth();
   const [routesData, setRoutesData] = useState(null);
   const [completedList, setCompletedList] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
   const [selectedStop, setSelectedStop] = useState(null);
   const [openModal, setOpenModal] = useState(false);
 
@@ -65,9 +65,13 @@ export function DriverDashboardView() {
         setRoutesData(json.data);
         const doneIds = (json.data.completedToday || []).map((r) => r.hotel.toString());
         setCompletedList(doneIds);
+        setErrorMsg('');
+      } else {
+        setErrorMsg(json.message || 'Error loading collection route.');
       }
     } catch (err) {
       console.error('Error fetching driver routes:', err);
+      setErrorMsg('Failed to load collection route from server.');
     } finally {
       setLoading(false);
     }
@@ -122,6 +126,16 @@ export function DriverDashboardView() {
     );
   }
 
+  if (errorMsg) {
+    return (
+      <Box sx={{ p: 4 }}>
+        <Alert severity="error" variant="filled">
+          {errorMsg}
+        </Alert>
+      </Box>
+    );
+  }
+
   const pnudRoute = routesData?.pnud?.route || [];
   const muniRoute = routesData?.municipality?.route || [];
 
@@ -131,7 +145,8 @@ export function DriverDashboardView() {
     .filter((r) => completedList.includes(r.id))
     .reduce((acc, r) => acc + r.weight, 0);
 
-  const maxTruckCapacity = 16.7 * 1000; // 16,700 kg
+  const capacityTons = routesData?.config?.truckCapacityTons ?? 16.7;
+  const maxTruckCapacity = capacityTons * 1000;
   const currentLoad = totalCollectedWeight;
   const remainingCapacity = maxTruckCapacity - currentLoad;
 
@@ -157,7 +172,7 @@ export function DriverDashboardView() {
   const activePath = [DEPOT_COORDS, ...pnudRoute.map((r) => [r.location.lat, r.location.lng])];
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto', px: { xs: 2, md: 5 }, py: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -181,7 +196,7 @@ export function DriverDashboardView() {
             Current Truck Load
           </Typography>
           <Typography variant="h4">
-            {(currentLoad / 1000).toFixed(2)} / 16.70 <Typography component="span" variant="subtitle2" color="text.secondary">tons</Typography>
+            {(currentLoad / 1000).toFixed(2)} / {(maxTruckCapacity / 1000).toFixed(2)} <Typography component="span" variant="subtitle2" color="text.secondary">tons</Typography>
           </Typography>
           <Box sx={{ mt: 2 }}>
             <LinearProgress
@@ -219,9 +234,9 @@ export function DriverDashboardView() {
       </Box>
 
       {/* Main Layout */}
-      <Box sx={{ display: 'flex', gap: 3, height: 'calc(100vh - 300px)', minHeight: 500 }}>
+      <Box sx={{ display: 'flex', gap: 3, height: 600 }}>
         {/* Map Column */}
-        <Box sx={{ flex: 1.5, position: 'relative', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ flex: 1.5, position: 'relative', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider', height: '100%' }}>
           <MapContainer center={DEPOT_COORDS} zoom={11} style={{ height: '100%', width: '100%' }}>
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -261,22 +276,22 @@ export function DriverDashboardView() {
 
             {/* Municipality Hotels (Red markers - not meeting criteria) */}
             {muniRoute.map((stop) => (
-                <Marker
-                  key={stop.id}
-                  position={[stop.location.lat, stop.location.lng]}
-                  icon={createMarkerIcon('#FF5630', '!')}
-                >
-                  <Popup>
-                    <Typography variant="subtitle2" color="error.main">{stop.name} (Skipped)</Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      Weight: {stop.weight} kg &bull; Organic: {stop.organicMatter}%
-                    </Typography>
-                    <Typography variant="caption" sx={{ display: 'block', color: 'error.main', fontWeight: 'bold', mt: 0.5 }}>
-                      Reason: {stop.reason === 'low_quality' ? 'Low Organic Quality' : 'Low Waste Quantity'}
-                    </Typography>
-                  </Popup>
-                </Marker>
-              ))}
+              <Marker
+                key={stop.id}
+                position={[stop.location.lat, stop.location.lng]}
+                icon={createMarkerIcon('#FF5630', '!')}
+              >
+                <Popup>
+                  <Typography variant="subtitle2" color="error.main">{stop.name} (Skipped)</Typography>
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    Weight: {stop.weight} kg &bull; Organic: {stop.organicMatter}%
+                  </Typography>
+                  <Typography variant="caption" sx={{ display: 'block', color: 'error.main', fontWeight: 'bold', mt: 0.5 }}>
+                    Reason: {stop.reason === 'low_quality' ? 'Low Organic Quality' : 'Low Waste Quantity'}
+                  </Typography>
+                </Popup>
+              </Marker>
+            ))}
 
             {/* Path lines - only for PNUD */}
             {activePath.length > 1 && (
@@ -291,149 +306,180 @@ export function DriverDashboardView() {
         </Box>
 
         {/* Sidebar Stops List */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'scroll', pr: 1, maxHeight: 'calc(100vh - 300px)', minHeight: 500, '&::-webkit-scrollbar': { width: 8 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'grey.400', borderRadius: 4 }, '&::-webkit-scrollbar-track': { bgcolor: 'grey.100', borderRadius: 4 } }}>
-          <Typography variant="subtitle1" sx={{ px: 1, color: 'text.secondary' }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, height: '100%', minHeight: 0 }}>
+          <Typography variant="subtitle1" sx={{ px: 1, color: 'text.secondary', fontWeight: 'bold' }}>
             PNUD Collection Checklist
           </Typography>
-          {routeWithTimes.map((stop, index) => {
-            const isDone = completedList.includes(stop.id);
+          <Box
+            sx={{
+              flexGrow: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2.5,
+              overflowY: 'scroll',
+              pr: 1,
+              minHeight: 0,
+              '&::-webkit-scrollbar': { width: 8 },
+              '&::-webkit-scrollbar-thumb': { bgcolor: 'grey.400', borderRadius: 4 },
+              '&::-webkit-scrollbar-track': { bgcolor: 'grey.100', borderRadius: 4 },
+            }}
+          >
+            {routeWithTimes.map((stop, index) => {
+              const isDone = completedList.includes(stop.id);
 
-            return (
-              <Card
-                key={stop.id}
-                sx={{
-                  p: 2.5,
-                  border: '1px solid',
-                  borderColor: isDone ? 'divider' : 'success.lighter',
-                  bgcolor: isDone ? 'action.hover' : 'background.paper',
-                  opacity: isDone ? 0.75 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                }}
-              >
-                {/* Step badge */}
-                <Box
+              return (
+                <Card
+                  key={stop.id}
                   sx={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
+                    p: 2.5,
+                    border: '1px solid',
+                    borderColor: isDone ? 'divider' : 'success.lighter',
+                    bgcolor: isDone ? 'action.hover' : 'background.paper',
+                    opacity: isDone ? 0.75 : 1,
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: isDone ? 'action.selected' : 'success.main',
-                    color: 'white',
-                    fontWeight: 'bold',
+                    flexDirection: 'column',
+                    gap: 2,
+                    flexShrink: 0,
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ m: 'auto' }}>
-                    {isDone ? '✓' : index + 1}
-                  </Typography>
-                </Box>
-
-                {/* Details */}
-                <Box sx={{ flexGrow: 1 }}>
-                  <Typography variant="subtitle2" sx={{ textDecoration: isDone ? 'line-through' : 'none' }}>
-                    {stop.name}
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 0.5 }}>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      Weight: <strong>{stop.weight} kg</strong>
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      &bull; Quality: <strong>{stop.organicMatter}%</strong>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    {/* Step badge */}
+                    <Box
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: isDone ? 'action.selected' : 'success.main',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Typography variant="subtitle2" sx={{ m: 'auto' }}>
+                        {isDone ? '✓' : index + 1}
+                      </Typography>
+                    </Box>
+                    <Typography variant="subtitle1" sx={{ flexGrow: 1, fontWeight: 'bold', textDecoration: isDone ? 'line-through' : 'none' }}>
+                      {stop.name}
                     </Typography>
                   </Box>
-                  <Box sx={{ mt: 1, display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                    <Typography variant="caption" sx={{ bgcolor: 'background.neutral', px: 1, py: 0.5, borderRadius: 0.5, fontWeight: 'bold' }}>
-                      ETA: {stop.arrivalTime}
-                    </Typography>
+
+                  {/* Details row */}
+                  <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                    <Box sx={{ display: 'flex', gap: 3 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="text.secondary">Weight</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{stop.weight} kg</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="text.secondary">Organic Matter</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{stop.organicMatter}%</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="text.secondary">ETA</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>{stop.arrivalTime}</Typography>
+                      </Box>
+                    </Box>
+
+                    {/* Button */}
+                    <Button
+                      variant={isDone ? 'outlined' : 'contained'}
+                      color={isDone ? 'inherit' : 'success'}
+                      size="medium"
+                      disabled={isDone}
+                      onClick={() => handleOpenRecordModal(stop)}
+                      sx={{ px: 3, py: 1 }}
+                    >
+                      {isDone ? 'Collected' : 'Collect'}
+                    </Button>
                   </Box>
-                </Box>
+                </Card>
+              );
+            })}
 
-                {/* Button */}
-                <Button
-                  variant={isDone ? 'outlined' : 'contained'}
-                  color={isDone ? 'inherit' : 'success'}
-                  size="small"
-                  disabled={isDone}
-                  onClick={() => handleOpenRecordModal(stop)}
-                >
-                  {isDone ? 'Collected' : 'Collect'}
-                </Button>
-              </Card>
-            );
-          })}
-
-          {/* Red Skipped Municipality Hotels */}
-          {muniRoute.map((stop) => {
-            const isDone = completedList.includes(stop.id);
-            return (
-              <Card
-                key={stop.id}
-                sx={{
-                  p: 2.5,
-                  border: '1px solid',
-                  borderColor: 'error.lighter',
-                  bgcolor: 'error.lighter',
-                  opacity: 0.85,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                }}
-              >
-                <Box
+            {/* Red Skipped Municipality Hotels */}
+            {muniRoute.map((stop) => {
+              const isDone = completedList.includes(stop.id);
+              return (
+                <Card
+                  key={stop.id}
                   sx={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
+                    p: 2.5,
+                    border: '1px solid',
+                    borderColor: 'error.lighter',
+                    bgcolor: 'error.lighter',
+                    opacity: 0.85,
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: 'error.main',
-                    color: 'white',
-                    fontWeight: 'bold',
+                    flexDirection: 'column',
+                    gap: 2,
+                    flexShrink: 0,
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ m: 'auto' }}>
-                    {isDone ? '✓' : '!'}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ flexGrow: 1 }}>
-                  <Typography variant="subtitle2" sx={{ color: 'error.dark', fontWeight: 'bold' }}>
-                    {stop.name} (Skipped)
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 0.5 }}>
-                    <Typography variant="caption" sx={{ color: 'error.dark' }}>
-                      Weight: <strong>{stop.weight} kg</strong>
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'error.dark' }}>
-                      &bull; Quality: <strong>{stop.organicMatter}%</strong>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: 'error.main',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Typography variant="subtitle2" sx={{ m: 'auto' }}>
+                        {isDone ? '✓' : '!'}
+                      </Typography>
+                    </Box>
+                    <Typography variant="subtitle1" sx={{ color: 'error.dark', fontWeight: 'bold', flexGrow: 1 }}>
+                      {stop.name} (Skipped)
                     </Typography>
                   </Box>
-                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'error.dark', fontWeight: 'bold' }}>
-                    Reason: {stop.reason === 'low_quality' ? 'Low Quality' : 'Low Quantity'}
-                  </Typography>
-                </Box>
 
-                <Button
-                  variant="outlined"
-                  color="error"
-                  size="small"
-                  disabled
-                >
-                  Bypassed
-                </Button>
-              </Card>
-            );
-          })}
+                  <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                    <Box sx={{ display: 'flex', gap: 3 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="error.dark">Weight</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'error.dark' }}>{stop.weight} kg</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="error.dark">Organic Matter</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'error.dark' }}>{stop.organicMatter}%</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="error.dark">Reason</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'error.dark', textTransform: 'capitalize' }}>
+                          {stop.reason === 'low_quality' ? 'Low Quality' : 'Low Quantity'}
+                        </Typography>
+                      </Box>
+                    </Box>
 
-          {routeWithTimes.length === 0 && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              No PNUD collections scheduled for today.
-            </Alert>
-          )}
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      size="medium"
+                      disabled
+                      sx={{ px: 3, py: 1 }}
+                    >
+                      Bypassed
+                    </Button>
+                  </Box>
+                </Card>
+              );
+            })}
+
+            {routeWithTimes.length === 0 && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                No PNUD collections scheduled for today.
+              </Alert>
+            )}
+          </Box>
         </Box>
       </Box>
 
@@ -476,6 +522,6 @@ export function DriverDashboardView() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 }

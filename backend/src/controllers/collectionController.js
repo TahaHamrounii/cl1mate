@@ -14,11 +14,22 @@ const getOptimizedDailyRoutes = async (req, res, next) => {
     let config = await SystemConfig.findOne().sort({ createdAt: -1 });
     if (!config) {
       // Default configurations if none created in DB yet
-      config = {
+      config = await SystemConfig.create({
         truckCapacityTons: 16.7,
         minWeightThreshold: 100,
         minOrganicPercentage: 95,
-      };
+      });
+    }
+
+    // 1.5 Enforce active driver restriction
+    if (req.user.role === 'driver' && config.activeDriver) {
+      if (config.activeDriver.toString() !== req.user._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          code: 'NOT_ACTIVE_DRIVER',
+          message: 'You are not today\'s active collection driver. Access denied.',
+        });
+      }
     }
 
     // 2. Fetch all hotels with their current real-time sensor readings

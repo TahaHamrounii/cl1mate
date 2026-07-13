@@ -4,17 +4,16 @@ const SystemConfig = require('../models/SystemConfig');
 const CollectionRecord = require('../models/CollectionRecord');
 
 /**
- * @desc    Get system global configs and telemetry status
+ * @desc    Get system global configs, users, hotels, collections, and stats
  * @route   GET /api/admin/dashboard
  * @access  Private (Admin role)
  */
 const getAdminDashboard = async (req, res, next) => {
   try {
-    const totalUsers = await User.countDocuments({});
-    const totalHotels = await Hotel.countDocuments({});
+    const users = await User.find({}).sort({ createdAt: -1 });
+    const hotels = await Hotel.find({}).populate('user');
     
     // Count sensors by status
-    const hotels = await Hotel.find({});
     const sensorStats = {
       online: 0,
       offline: 0,
@@ -26,7 +25,7 @@ const getAdminDashboard = async (req, res, next) => {
     });
 
     // Get configuration details
-    let config = await SystemConfig.findOne().sort({ createdAt: -1 });
+    let config = await SystemConfig.findOne().sort({ createdAt: -1 }).populate('activeDriver');
     if (!config) {
       config = await SystemConfig.create({
         minOrganicPercentage: 95,
@@ -37,19 +36,20 @@ const getAdminDashboard = async (req, res, next) => {
 
     // Global collection stats
     const totalCollections = await CollectionRecord.countDocuments({ status: 'completed' });
-    const collections = await CollectionRecord.find({ status: 'completed' });
-    const totalWeightKg = collections.reduce((sum, c) => sum + c.weight, 0);
+    const collections = await CollectionRecord.find({}).populate('hotel');
+    const totalWeightKg = collections.filter(c => c.status === 'completed').reduce((sum, c) => sum + c.weight, 0);
 
     res.json({
       success: true,
       data: {
-        totalUsers,
-        totalHotels,
+        users,
+        hotels,
         sensorStats,
         config,
         collectionsSummary: {
           totalCollections,
           totalWeightTons: parseFloat((totalWeightKg / 1000).toFixed(2)),
+          collections,
         },
       },
     });
@@ -59,25 +59,28 @@ const getAdminDashboard = async (req, res, next) => {
 };
 
 /**
- * @desc    Create a new system configuration (updates parameters)
+ * @desc    Create/Update system configuration (updates parameters and active driver)
  * @route   POST /api/admin/config
  * @access  Private (Admin role)
  */
 const updateSystemConfig = async (req, res, next) => {
   try {
-    const { minOrganicPercentage, minWeightThreshold, truckCapacityTons } = req.body;
+    const { minOrganicPercentage, minWeightThreshold, truckCapacityTons, activeDriver } = req.body;
 
     const config = await SystemConfig.create({
       minOrganicPercentage: minOrganicPercentage !== undefined ? Number(minOrganicPercentage) : 95,
       minWeightThreshold: minWeightThreshold !== undefined ? Number(minWeightThreshold) : 100,
       truckCapacityTons: truckCapacityTons !== undefined ? Number(truckCapacityTons) : 16.7,
+      activeDriver: activeDriver || undefined,
       lastUpdatedBy: req.user._id,
     });
+
+    const populatedConfig = await SystemConfig.findById(config._id).populate('activeDriver');
 
     res.json({
       success: true,
       message: 'System parameters updated successfully',
-      data: config,
+      data: populatedConfig,
     });
   } catch (error) {
     next(error);
@@ -85,7 +88,7 @@ const updateSystemConfig = async (req, res, next) => {
 };
 
 /**
- * @desc    Create/Register a hotel profile (requires creating a User first, or handles both)
+ * @desc    Create/Register a hotel profile
  * @route   POST /api/admin/hotels
  * @access  Private (Admin role)
  */
@@ -98,23 +101,21 @@ const createHotelProfile = async (req, res, next) => {
       return next(new Error('name, email, password, lat, and lng are required'));
     }
 
-    // 1. Check if user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
       res.status(400);
       return next(new Error('User account already exists with this email'));
     }
 
-    // 2. Create the User account with role 'hotel'
     const user = await User.create({
       name,
       email,
       password,
       role: 'hotel',
+      status: 'active',
       phone,
     });
 
-    // 3. Create the corresponding Hotel profile
     const hotel = await Hotel.create({
       user: user._id,
       name,
@@ -158,10 +159,7 @@ const deleteHotelProfile = async (req, res, next) => {
       return next(new Error('Hotel not found'));
     }
 
-    // Delete associated user
     await User.findByIdAndDelete(hotel.user);
-
-    // Delete hotel
     await Hotel.findByIdAndDelete(req.params.id);
 
     res.json({
@@ -173,9 +171,104 @@ const deleteHotelProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Get all users list
+ * @route   GET /api/admin/users
+ * @access  Private (Admin role)
+ */
+const getUsers = async (req, res, next) => {
+  try {
+    const users = await User.find({}).sort({ createdAt: -1 });
+    res.json({ success: true, data: users });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Update user account activation status
+ * @route   PUT /api/admin/users/:id/status
+ * @access  Private (Admin role)
+ */
+const updateUserStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['pending', 'active', 'rejected'].includes(status)) {
+      res.status(400);
+      return next(new Error('Invalid status'));
+    }
+
+    const user = await User.findByIdAndUpdate(id, { status }, { new: true });
+    if (!user) {
+      res.status(404);
+      return next(new Error('User not found'));
+    }
+
+    res.json({ success: true, message: `User account status updated to ${status}`, data: user });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Associate a registered hotel user to a new Hotel profile
+ * @route   POST /api/admin/associate-hotel
+ * @access  Private (Admin role)
+ */
+const associateHotelUser = async (req, res, next) => {
+  try {
+    const { userId, name, lat, lng, minWeightThreshold } = req.body;
+
+    if (!userId || !name || lat === undefined || lng === undefined) {
+      res.status(400);
+      return next(new Error('userId, name, lat, and lng are required'));
+    }
+
+    const user = await User.findById(userId);
+    if (!user || user.role !== 'hotel') {
+      res.status(400);
+      return next(new Error('Valid hotel user not found'));
+    }
+
+    const existingProfile = await Hotel.findOne({ user: userId });
+    if (existingProfile) {
+      res.status(400);
+      return next(new Error('Hotel profile already exists for this user'));
+    }
+
+    const hotel = await Hotel.create({
+      user: userId,
+      name,
+      location: {
+        lat: Number(lat),
+        lng: Number(lng),
+      },
+      config: {
+        minWeightThreshold: minWeightThreshold !== undefined ? Number(minWeightThreshold) : 100,
+      },
+    });
+
+    user.status = 'active';
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Hotel user activated and associated successfully',
+      data: hotel,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAdminDashboard,
   updateSystemConfig,
   createHotelProfile,
   deleteHotelProfile,
+  getUsers,
+  updateUserStatus,
+  associateHotelUser,
 };

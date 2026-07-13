@@ -68,6 +68,14 @@ const loginUser = async (req, res, next) => {
     const user = await User.findOne({ email }).select('+password');
 
     if (user && (await user.matchPassword(password))) {
+      if (user.role !== 'admin' && user.status && user.status !== 'active') {
+        res.status(403);
+        const errMsg = user.status === 'rejected'
+          ? 'Your account has been rejected by the Admin'
+          : 'Your account is pending activation by the Admin';
+        return next(new Error(errMsg));
+      }
+
       res.json({
         success: true,
         data: {

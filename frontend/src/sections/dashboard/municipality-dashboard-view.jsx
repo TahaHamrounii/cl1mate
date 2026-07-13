@@ -13,7 +13,6 @@ import Button from '@mui/material/Button';
 import Avatar from '@mui/material/Avatar';
 import Dialog from '@mui/material/Dialog';
 import TextField from '@mui/material/TextField';
-import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -39,7 +38,7 @@ const createMarkerIcon = (color, text) =>
     iconAnchor: [14, 14],
   });
 
-const DEPOT_COORDS = [33.8075, 10.8451];
+const DEPOT_COORDS = [33.693396, 10.929588];
 
 export function MunicipalityDashboardView() {
   const { user } = useAuth();
@@ -149,7 +148,7 @@ export function MunicipalityDashboardView() {
   const activePath = [DEPOT_COORDS, ...muniRoute.map((r) => [r.location.lat, r.location.lng])];
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto', px: { xs: 2, md: 5 }, py: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -200,9 +199,9 @@ export function MunicipalityDashboardView() {
       </Box>
 
       {/* Main Grid */}
-      <Box sx={{ display: 'flex', gap: 3, height: 'calc(100vh - 300px)', minHeight: 500 }}>
+      <Box sx={{ display: 'flex', gap: 3, height: 600 }}>
         {/* Map */}
-        <Box sx={{ flex: 1.5, position: 'relative', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+        <Box sx={{ flex: 1.5, position: 'relative', borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider', height: '100%' }}>
           <MapContainer center={DEPOT_COORDS} zoom={11} style={{ height: '100%', width: '100%' }}>
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -268,162 +267,178 @@ export function MunicipalityDashboardView() {
         </Box>
 
         {/* Sidebar */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'scroll', pr: 1, maxHeight: 'calc(100vh - 300px)', minHeight: 500, '&::-webkit-scrollbar': { width: 8 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'grey.400', borderRadius: 4 }, '&::-webkit-scrollbar-track': { bgcolor: 'grey.100', borderRadius: 4 } }}>
-          <Typography variant="subtitle1" sx={{ px: 1, color: 'text.secondary' }}>
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, height: '100%', minHeight: 0 }}>
+          <Typography variant="subtitle1" sx={{ px: 1, color: 'text.secondary', fontWeight: 'bold' }}>
             Scheduled Stops Checklist
           </Typography>
-          {routeWithTimes.map((stop, index) => {
-            const isDone = completedList.includes(stop.id);
+          <Box
+            sx={{
+              flexGrow: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2.5,
+              overflowY: 'scroll',
+              pr: 1,
+              minHeight: 0,
+              '&::-webkit-scrollbar': { width: 8 },
+              '&::-webkit-scrollbar-thumb': { bgcolor: 'grey.400', borderRadius: 4 },
+              '&::-webkit-scrollbar-track': { bgcolor: 'grey.100', borderRadius: 4 },
+            }}
+          >
+            {routeWithTimes.map((stop, index) => {
+              const isDone = completedList.includes(stop.id);
 
-            return (
-              <Card
-                key={stop.id}
-                sx={{
-                  p: 2.5,
-                  border: '1px solid',
-                  borderColor: isDone ? 'divider' : 'warning.lighter',
-                  bgcolor: isDone ? 'action.hover' : 'background.paper',
-                  opacity: isDone ? 0.75 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                }}
-              >
-                <Box
+              return (
+                <Card
+                  key={stop.id}
                   sx={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
+                    p: 2.5,
+                    border: '1px solid',
+                    borderColor: isDone ? 'divider' : 'warning.lighter',
+                    bgcolor: isDone ? 'action.hover' : 'background.paper',
+                    opacity: isDone ? 0.75 : 1,
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: isDone ? 'action.selected' : 'warning.main',
-                    color: 'white',
-                    fontWeight: 'bold',
+                    flexDirection: 'column',
+                    gap: 2,
+                    flexShrink: 0,
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ m: 'auto' }}>
-                    {isDone ? '✓' : index + 1}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ flexGrow: 1 }}>
-                  <Typography variant="subtitle2" sx={{ textDecoration: isDone ? 'line-through' : 'none' }}>
-                    {stop.name}
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 0.5 }}>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      Weight: <strong>{stop.weight} kg</strong>
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                      &bull; Quality: <strong>{stop.organicMatter}%</strong>
-                    </Typography>
-                  </Box>
-                  <Box sx={{ mt: 1, display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                    <Typography variant="caption" sx={{ bgcolor: 'background.neutral', px: 1, py: 0.5, borderRadius: 0.5, fontWeight: 'bold' }}>
-                      ETA: {stop.arrivalTime}
-                    </Typography>
-                    {stop.reason && (
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          bgcolor: 'error.lighter',
-                          color: 'error.dark',
-                          px: 1,
-                          py: 0.5,
-                          borderRadius: 0.5,
-                          textTransform: 'capitalize',
-                          fontWeight: 'bold',
-                        }}
-                      >
-                        {stop.reason.replace('_', ' ')}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    {/* Badge */}
+                    <Box
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: isDone ? 'action.selected' : 'warning.main',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Typography variant="subtitle2" sx={{ m: 'auto' }}>
+                        {isDone ? '✓' : index + 1}
                       </Typography>
-                    )}
+                    </Box>
+                    <Typography variant="subtitle1" sx={{ flexGrow: 1, fontWeight: 'bold', textDecoration: isDone ? 'line-through' : 'none' }}>
+                      {stop.name}
+                    </Typography>
                   </Box>
-                </Box>
 
-                <Button
-                  variant={isDone ? 'outlined' : 'contained'}
-                  color={isDone ? 'inherit' : 'warning'}
-                  size="small"
-                  disabled={isDone}
-                  onClick={() => handleOpenRecordModal(stop)}
-                >
-                  {isDone ? 'Collected' : 'Collect'}
-                </Button>
-              </Card>
-            );
-          })}
+                  {/* Details row */}
+                  <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                    <Box sx={{ display: 'flex', gap: 3 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="text.secondary">Weight</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{stop.weight} kg</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="text.secondary">Organic Matter</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{stop.organicMatter}%</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="text.secondary">ETA</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'warning.main' }}>{stop.arrivalTime}</Typography>
+                      </Box>
+                    </Box>
 
-          {/* Green PNUD Hotels */}
-          {pnudRoute.map((stop) => {
-            const isDone = completedList.includes(stop.id);
-            return (
-              <Card
-                key={stop.id}
-                sx={{
-                  p: 2.5,
-                  border: '1px solid',
-                  borderColor: 'success.lighter',
-                  bgcolor: 'success.lighter',
-                  opacity: 0.85,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                }}
-              >
-                <Box
+                    {/* Button */}
+                    <Button
+                      variant={isDone ? 'outlined' : 'contained'}
+                      color={isDone ? 'inherit' : 'warning'}
+                      size="medium"
+                      disabled={isDone}
+                      onClick={() => handleOpenRecordModal(stop)}
+                      sx={{ px: 3, py: 1 }}
+                    >
+                      {isDone ? 'Collected' : 'Collect'}
+                    </Button>
+                  </Box>
+                </Card>
+              );
+            })}
+
+            {/* Green PNUD Hotels */}
+            {pnudRoute.map((stop) => {
+              const isDone = completedList.includes(stop.id);
+              return (
+                <Card
+                  key={stop.id}
                   sx={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
+                    p: 2.5,
+                    border: '1px solid',
+                    borderColor: 'success.lighter',
+                    bgcolor: 'success.lighter',
+                    opacity: 0.85,
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    bgcolor: 'success.main',
-                    color: 'white',
-                    fontWeight: 'bold',
+                    flexDirection: 'column',
+                    gap: 2,
+                    flexShrink: 0,
                   }}
                 >
-                  <Typography variant="subtitle2" sx={{ m: 'auto' }}>
-                    {isDone ? '✓' : 'P'}
-                  </Typography>
-                </Box>
-
-                <Box sx={{ flexGrow: 1 }}>
-                  <Typography variant="subtitle2" sx={{ color: 'success.dark', fontWeight: 'bold' }}>
-                    {stop.name} (PNUD Route)
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 0.5 }}>
-                    <Typography variant="caption" sx={{ color: 'success.dark' }}>
-                      Weight: <strong>{stop.weight} kg</strong>
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'success.dark' }}>
-                      &bull; Quality: <strong>{stop.organicMatter}%</strong>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: 'success.main',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Typography variant="subtitle2" sx={{ m: 'auto' }}>
+                        {isDone ? '✓' : 'P'}
+                      </Typography>
+                    </Box>
+                    <Typography variant="subtitle1" sx={{ color: 'success.dark', fontWeight: 'bold', flexGrow: 1 }}>
+                      {stop.name} (PNUD Route)
                     </Typography>
                   </Box>
-                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'success.dark', fontWeight: 'bold' }}>
-                    Collected by PNUD Methanization Route
-                  </Typography>
-                </Box>
 
-                <Button
-                  variant="outlined"
-                  color="success"
-                  size="small"
-                  disabled
-                >
-                  PNUD
-                </Button>
-              </Card>
-            );
-          })}
+                  <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                    <Box sx={{ display: 'flex', gap: 3 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="success.dark">Weight</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.dark' }}>{stop.weight} kg</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="success.dark">Organic Matter</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.dark' }}>{stop.organicMatter}%</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="caption" color="success.dark">Status</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.dark' }}>Routed to PNUD</Typography>
+                      </Box>
+                    </Box>
 
-          {routeWithTimes.length === 0 && (
-            <Alert severity="success" sx={{ mt: 2 }}>
-              Great! No municipal collections left today.
-            </Alert>
-          )}
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      size="medium"
+                      disabled
+                      sx={{ px: 3, py: 1 }}
+                    >
+                      PNUD
+                    </Button>
+                  </Box>
+                </Card>
+              );
+            })}
+
+            {routeWithTimes.length === 0 && (
+              <Alert severity="success" sx={{ mt: 2 }}>
+                Great! No municipal collections left today.
+              </Alert>
+            )}
+          </Box>
         </Box>
       </Box>
 
@@ -466,6 +481,6 @@ export function MunicipalityDashboardView() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 }

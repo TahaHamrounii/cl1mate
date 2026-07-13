@@ -11,7 +11,6 @@ import TableRow from '@mui/material/TableRow';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
-import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import TableContainer from '@mui/material/TableContainer';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -128,7 +127,7 @@ export function HotelDashboardView() {
     : 0;
 
   return (
-    <Container sx={{ py: 5 }}>
+    <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto', px: { xs: 2, md: 5 }, py: 4 }}>
       {/* Header */}
       <Box sx={{ mb: 4, display: 'flex', alignItems: 'center', gap: 2 }}>
         <Avatar src={user?.avatar} sx={{ width: 64, height: 64 }} />
@@ -303,6 +302,6 @@ export function HotelDashboardView() {
           </Table>
         </TableContainer>
       </Card>
-    </Container>
+    </Box>
   );
 }

@@ -32,6 +32,11 @@ const UserSchema = new mongoose.Schema(
       enum: ['admin', 'hotel', 'pnud', 'municipality', 'driver'],
       default: 'hotel',
     },
+    status: {
+      type: String,
+      enum: ['pending', 'active', 'rejected'],
+      default: 'pending',
+    },
     phone: {
       type: String,
     },

@@ -16,6 +16,10 @@ const SystemConfigSchema = new mongoose.Schema(
       type: Number,
       default: 16.7, // 16.7 tons
     },
+    activeDriver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
     lastUpdatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

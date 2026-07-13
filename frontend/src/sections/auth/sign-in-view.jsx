@@ -26,7 +26,7 @@ export function SignInView() {
 
   useEffect(() => {
     if (user) {
-      router.push(paths.profile);
+      router.push('/');
     }
   }, [user, router]);
 
@@ -46,7 +46,7 @@ export function SignInView() {
     try {
       setErrorMsg('');
       await login(data.email, data.password);
-      router.push(paths.profile);
+      router.push('/');
     } catch (error) {
       console.error(error);
       setErrorMsg(error.message || 'Login failed');

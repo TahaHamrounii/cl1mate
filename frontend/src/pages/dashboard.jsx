@@ -1,4 +1,5 @@
 import { HotelDashboardView } from 'src/sections/dashboard/hotel-dashboard-view';
+import { AdminDashboardView } from 'src/sections/dashboard/admin-dashboard-view';
 import { DriverDashboardView } from 'src/sections/dashboard/driver-dashboard-view';
 import { DashboardPlaceholderView } from 'src/sections/dashboard/placeholder-view';
 import { MunicipalityDashboardView } from 'src/sections/dashboard/municipality-dashboard-view';
@@ -17,6 +18,8 @@ export default function Page() {
 
   const renderDashboard = () => {
     switch (user?.role) {
+      case 'admin':
+        return <AdminDashboardView />;
       case 'hotel':
         return <HotelDashboardView />;
       case 'driver':
