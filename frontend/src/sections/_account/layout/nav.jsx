@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { usePopover } from 'minimal-shared/hooks';
 import { varAlpha, isActiveLink } from 'minimal-shared/utils';
 
@@ -11,25 +11,39 @@ import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import ButtonBase, { buttonBaseClasses } from '@mui/material/ButtonBase';
 
-import { usePathname } from 'src/routes/hooks';
 import { RouterLink } from 'src/routes/components';
+import { useRouter, usePathname } from 'src/routes/hooks';
 
 import { _mock } from 'src/_mock';
 
 import { Iconify } from 'src/components/iconify';
 
+import { useAuth } from 'src/auth/hooks/use-auth';
+
 // ----------------------------------------------------------------------
 
 export function NavAccountDesktop({ data, sx }) {
+  const { user, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/sign-in');
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const renderUserInfo = () => (
     <Box sx={{ p: 3, pb: 2 }}>
       <UserPhoto sx={{ mb: 2 }} />
       <div>
         <Typography variant="subtitle1" noWrap sx={{ mb: 0.5 }}>
-          Jayvion
+          {user?.name || 'Jayvion'}
         </Typography>
         <Typography variant="body2" noWrap sx={{ color: 'text.secondary' }}>
-          nannie.abernathy70@yahoo.com
+          {user?.email || 'nannie.abernathy70@yahoo.com'}
         </Typography>
       </div>
     </Box>
@@ -52,7 +66,7 @@ export function NavAccountDesktop({ data, sx }) {
       <NavItem
         title="Logout"
         icon={<Iconify icon="carbon:logout" />}
-        onClick={() => console.info('Logout')}
+        onClick={handleLogout}
       />
     </Box>
   );
@@ -82,8 +96,19 @@ export function NavAccountDesktop({ data, sx }) {
 
 export function NavAccountPopover({ data, sx }) {
   const { open, onClose, onOpen, anchorEl } = usePopover();
-
   const pathname = usePathname();
+  const { logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+      onClose();
+      await logout();
+      router.push('/sign-in');
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -137,7 +162,7 @@ export function NavAccountPopover({ data, sx }) {
     >
       {renderNav()}
       <Divider sx={{ my: 0.5, borderStyle: 'dashed' }} />
-      <NavItem title="Logout" icon={<Iconify icon="carbon:logout" />} onClick={onClose} />
+      <NavItem title="Logout" icon={<Iconify icon="carbon:logout" />} onClick={handleLogout} />
     </Popover>
   );
 
@@ -193,6 +218,64 @@ export function NavItem({ title, path = '', icon, sx, ...other }) {
 // ----------------------------------------------------------------------
 
 export function UserPhoto({ sx, ...other }) {
+  const { user, updateUser } = useAuth();
+  const fileInputRef = useRef(null);
+
+  const handleAttach = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'dcl02yykn';
+    const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'unsigned_preset';
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', uploadPreset);
+
+    try {
+      const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        console.error('Raw Cloudinary Error Response:', errText);
+        throw new Error('Failed to upload image to Cloudinary');
+      }
+
+      const resData = await response.json();
+      const secureUrl = resData.secure_url;
+
+      const token = localStorage.getItem('token');
+      const apiResponse = await fetch('http://localhost:5000/api/auth/profile/avatar', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ avatar: secureUrl }),
+      });
+
+      if (!apiResponse.ok) {
+        throw new Error('Failed to update avatar in backend profile');
+      }
+
+      const result = await apiResponse.json();
+      if (result.success) {
+        updateUser({ avatar: secureUrl });
+      }
+    } catch (error) {
+      console.error('Error changing avatar:', error);
+    }
+  };
+
   return (
     <Box
       sx={[
@@ -205,9 +288,10 @@ export function UserPhoto({ sx, ...other }) {
       ]}
       {...other}
     >
-      <Avatar src={_mock.image.avatar(0)} sx={{ width: 64, height: 64 }} />
+      <Avatar src={user?.avatar || _mock.image.avatar(0)} sx={{ width: 64, height: 64 }} />
 
       <Box
+        onClick={handleAttach}
         sx={{
           gap: 1,
           display: 'flex',
@@ -220,6 +304,14 @@ export function UserPhoto({ sx, ...other }) {
         <Iconify icon="solar:pen-2-outline" />
         Change photo
       </Box>
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        style={{ display: 'none' }}
+      />
     </Box>
   );
 }

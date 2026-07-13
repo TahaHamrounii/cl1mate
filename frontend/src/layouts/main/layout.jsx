@@ -3,11 +3,8 @@ import { useBoolean } from 'minimal-shared/hooks';
 import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
 
-import { usePathname } from 'src/routes/hooks';
-
 import { Logo } from 'src/components/logo';
 
-import { Footer } from './footer';
 import { langs } from '../langs-config';
 import { NavMobile } from './nav/mobile';
 import { NavDesktop } from './nav/desktop';
@@ -25,11 +22,7 @@ import { LanguagePopover } from '../components/language-popover';
 // ----------------------------------------------------------------------
 
 export function MainLayout({ sx, cssVars, children, slotProps, layoutQuery = 'md' }) {
-  const pathname = usePathname();
-
   const { value: open, onFalse: onClose, onTrue: onOpen } = useBoolean();
-
-  const homePage = pathname === '/';
 
   const renderHeader = () => {
     const headerSlots = {
@@ -92,7 +85,7 @@ export function MainLayout({ sx, cssVars, children, slotProps, layoutQuery = 'md
     );
   };
 
-  const renderFooter = () => (homePage ? <HomeFooter /> : <Footer layoutQuery={layoutQuery} />);
+  const renderFooter = () => <HomeFooter />;
 
   const renderMain = () => <MainSection {...slotProps?.main}>{children}</MainSection>;
 

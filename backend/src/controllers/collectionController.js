@@ -24,7 +24,15 @@ const getOptimizedDailyRoutes = async (req, res, next) => {
     // 2. Fetch all hotels with their current real-time sensor readings
     const hotels = await Hotel.find({});
 
-    // 3. Optimize routes using the utility helper
+    // 3. Fetch completed collections for today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const completedToday = await CollectionRecord.find({
+      status: 'completed',
+      collectedAt: { $gte: startOfToday },
+    });
+
+    // 4. Optimize routes using the utility helper
     // Depot is set in Djerba (default)
     const routes = optimizeRoutes(hotels, config);
 
@@ -38,6 +46,7 @@ const getOptimizedDailyRoutes = async (req, res, next) => {
         },
         pnud: routes.pnud,
         municipality: routes.municipality,
+        completedToday,
       },
     });
   } catch (error) {

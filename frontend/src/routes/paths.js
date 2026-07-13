@@ -66,18 +66,7 @@ export const paths = {
   /**
    * Account
    */
-  account: {
-    root: '/account',
-    personal: '/account/personal',
-    wishlist: '/account/wishlist',
-    vouchers: '/account/vouchers',
-    orders: '/account/orders',
-    payment: '/account/payment',
-  },
-  /**
-   * Auth
-   */
-
+  profile: '/profile',
   signIn: '/sign-in',
   signUp: '/sign-up',
   verify: '/verify',

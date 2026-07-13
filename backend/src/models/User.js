@@ -5,7 +5,12 @@ const UserSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: [true, 'Please add a name'],
+    },
+    firstName: {
+      type: String,
+    },
+    lastName: {
+      type: String,
     },
     email: {
       type: String,
@@ -28,6 +33,28 @@ const UserSchema = new mongoose.Schema(
       default: 'hotel',
     },
     phone: {
+      type: String,
+    },
+    avatar: {
+      type: String,
+      default: '',
+    },
+    birthday: {
+      type: Date,
+    },
+    gender: {
+      type: String,
+    },
+    streetAddress: {
+      type: String,
+    },
+    city: {
+      type: String,
+    },
+    country: {
+      type: String,
+    },
+    zipCode: {
       type: String,
     },
   },

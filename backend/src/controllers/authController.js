@@ -42,6 +42,7 @@ const registerUser = async (req, res, next) => {
           email: user.email,
           role: user.role,
           phone: user.phone,
+          avatar: user.avatar || '',
           token: generateToken(user._id),
         },
       });
@@ -75,6 +76,7 @@ const loginUser = async (req, res, next) => {
           email: user.email,
           role: user.role,
           phone: user.phone,
+          avatar: user.avatar || '',
           token: generateToken(user._id),
         },
       });
@@ -110,8 +112,81 @@ const getUserProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Update user profile avatar
+ * @route   PUT /api/auth/profile/avatar
+ * @access  Private
+ */
+const updateUserAvatar = async (req, res, next) => {
+  try {
+    const { avatar } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (user) {
+      user.avatar = avatar;
+      await user.save();
+
+      res.json({
+        success: true,
+        data: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone,
+          avatar: user.avatar,
+        },
+      });
+    } else {
+      res.status(404);
+      return next(new Error('User not found'));
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Update user profile
+ * @route   PUT /api/auth/profile
+ * @access  Private
+ */
+const updateUserProfile = async (req, res, next) => {
+  try {
+    const { firstName, lastName, phoneNumber, birthday, gender, streetAddress, city, country, zipCode } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (user) {
+      user.firstName = firstName !== undefined ? firstName : user.firstName;
+      user.lastName = lastName !== undefined ? lastName : user.lastName;
+      user.name = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.name;
+      user.phone = phoneNumber !== undefined ? phoneNumber : user.phone;
+      user.birthday = birthday !== undefined ? birthday : user.birthday;
+      user.gender = gender !== undefined ? gender : user.gender;
+      user.streetAddress = streetAddress !== undefined ? streetAddress : user.streetAddress;
+      user.city = city !== undefined ? city : user.city;
+      user.country = country !== undefined ? country : user.country;
+      user.zipCode = zipCode !== undefined ? zipCode : user.zipCode;
+
+      await user.save();
+
+      res.json({
+        success: true,
+        data: user,
+      });
+    } else {
+      res.status(404);
+      return next(new Error('User not found'));
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
   getUserProfile,
+  updateUserAvatar,
+  updateUserProfile,
 };

@@ -2,7 +2,6 @@ import { varAlpha } from 'minimal-shared/utils';
 
 import Box from '@mui/material/Box';
 import Badge from '@mui/material/Badge';
-import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import IconButton from '@mui/material/IconButton';
 
@@ -12,9 +11,7 @@ import { RouterLink } from 'src/routes/components';
 import { CONFIG } from 'src/global-config';
 
 import { Iconify } from 'src/components/iconify';
-import { MegaMenuMobile, MegaMenuHorizontal } from 'src/components/mega-menu';
 
-import { navData } from './nav-config';
 import { NavAccountPopover, navData as navDataAccount } from '../../_account/layout';
 
 // ----------------------------------------------------------------------
@@ -50,27 +47,6 @@ export function Header({ sx, ...other }) {
     </Box>
   );
 
-  const renderNavDesktop = () => (
-    <MegaMenuHorizontal data={navData} sx={{ display: { xs: 'none', md: 'flex' } }} />
-  );
-
-  const renderNavMobile = () => (
-    <MegaMenuMobile
-      data={navData}
-      slots={{
-        button: (
-          <Button
-            color="inherit"
-            startIcon={<Iconify icon="carbon:menu" />}
-            sx={{ display: { md: 'none' }, fontWeight: 'fontWeightMedium' }}
-          >
-            Categories
-          </Button>
-        ),
-      }}
-    />
-  );
-
   return (
     <Box
       component="section"
@@ -95,8 +71,6 @@ export function Header({ sx, ...other }) {
           position: 'relative',
         }}
       >
-        {renderNavDesktop()}
-        {renderNavMobile()}
         <Box component="span" sx={{ flexGrow: 1 }} />
         {renderActions()}
       </Container>

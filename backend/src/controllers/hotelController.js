@@ -1,6 +1,7 @@
 const Hotel = require('../models/Hotel');
 const CollectionRecord = require('../models/CollectionRecord');
 const SensorReading = require('../models/SensorReading');
+const { seedHotelData } = require('../utils/hotelSeeder');
 
 /**
  * @desc    Get dashboard metrics for currently logged-in hotel
@@ -15,6 +16,12 @@ const getHotelDashboard = async (req, res, next) => {
       res.status(404);
       return next(new Error('Hotel profile not found for this user'));
     }
+
+    // Auto-seed historical telemetry & collection logs if empty
+    await seedHotelData(hotel._id);
+
+    // Refresh hotel instance to pick up the updated seeded current sensors values
+    const updatedHotel = await Hotel.findById(hotel._id);
 
     // Get total waste collected
     const collectionHistory = await CollectionRecord.find({
@@ -45,7 +52,7 @@ const getHotelDashboard = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        hotel,
+        hotel: updatedHotel,
         metrics: {
           totalCollected,
           totalPickups: collectionHistory.length,
@@ -74,7 +81,7 @@ const getSensorHistory = async (req, res, next) => {
       return next(new Error('Hotel profile not found'));
     }
 
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = parseInt(req.query.limit) || 300;
 
     const readings = await SensorReading.find({ hotel: hotel._id })
       .sort({ timestamp: -1 })

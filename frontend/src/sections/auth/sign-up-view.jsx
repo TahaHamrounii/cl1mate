@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useState, useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 
 import Link from '@mui/material/Link';
@@ -21,8 +21,14 @@ import { SignUpForm } from './components/sign-up-form';
 
 export function SignUpView() {
   const router = useRouter();
-  const { signup } = useAuth();
+  const { signup, user } = useAuth();
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      router.push(paths.profile);
+    }
+  }, [user, router]);
 
   const defaultValues = {
     fullName: '',
@@ -44,7 +50,7 @@ export function SignUpView() {
     try {
       setErrorMsg('');
       await signup(data.fullName, data.email, data.password, data.role, data.phone);
-      router.push(paths.account.personal);
+      router.push(paths.profile);
     } catch (error) {
       console.error(error);
       setErrorMsg(error.message || 'Registration failed');

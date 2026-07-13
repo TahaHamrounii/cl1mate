@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useState, useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 
 import Link from '@mui/material/Link';
@@ -21,8 +21,14 @@ import { SignInForm } from './components/sign-in-form';
 
 export function SignInView() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, user } = useAuth();
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      router.push(paths.profile);
+    }
+  }, [user, router]);
 
   const defaultValues = {
     email: '',
@@ -40,7 +46,7 @@ export function SignInView() {
     try {
       setErrorMsg('');
       await login(data.email, data.password);
-      router.push(paths.account.personal);
+      router.push(paths.profile);
     } catch (error) {
       console.error(error);
       setErrorMsg(error.message || 'Login failed');

@@ -8,36 +8,32 @@ import { LoadingScreen } from 'src/components/loading-screen';
 import { AccountLayout } from 'src/sections/_account/layout';
 import { EcommerceLayout } from 'src/sections/_ecommerce/layout';
 
+import { AuthGuard } from 'src/auth/guard';
+
 // ----------------------------------------------------------------------
 
-const OrdersPage = lazy(() => import('src/pages/account/orders'));
-const PaymentPage = lazy(() => import('src/pages/account/payment'));
 const PersonalPage = lazy(() => import('src/pages/account/personal'));
-const VouchersPage = lazy(() => import('src/pages/account/vouchers'));
-const WishlistPage = lazy(() => import('src/pages/account/wishlist'));
 
 // ----------------------------------------------------------------------
 
 export const accountRoutes = [
   {
-    path: 'account',
+    path: 'profile',
     element: (
-      <MainLayout>
-        <EcommerceLayout>
-          <AccountLayout>
-            <Suspense fallback={<LoadingScreen sx={{ height: 480 }} />}>
-              <Outlet />
-            </Suspense>
-          </AccountLayout>
-        </EcommerceLayout>
-      </MainLayout>
+      <AuthGuard>
+        <MainLayout>
+          <EcommerceLayout>
+            <AccountLayout>
+              <Suspense fallback={<LoadingScreen sx={{ height: 480 }} />}>
+                <Outlet />
+              </Suspense>
+            </AccountLayout>
+          </EcommerceLayout>
+        </MainLayout>
+      </AuthGuard>
     ),
     children: [
-      { path: 'personal', element: <PersonalPage /> },
-      { path: 'wishlist', element: <WishlistPage /> },
-      { path: 'vouchers', element: <VouchersPage /> },
-      { path: 'orders', element: <OrdersPage /> },
-      { path: 'payment', element: <PaymentPage /> },
+      { index: true, element: <PersonalPage /> },
     ],
   },
 ];

@@ -1,20 +1,19 @@
 import * as z from 'zod';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { varAlpha } from 'minimal-shared/utils';
-import { useBoolean } from 'minimal-shared/hooks';
 import { zodResolver } from '@hookform/resolvers/zod';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Divider from '@mui/material/Divider';
-import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
-import InputAdornment from '@mui/material/InputAdornment';
 
-import { Iconify } from 'src/components/iconify';
 import { Form, Field, schemaUtils } from 'src/components/hook-form';
 
 import { UserPhoto } from 'src/sections/_account/layout';
+
+import { useAuth } from 'src/auth/hooks/use-auth';
 
 // ----------------------------------------------------------------------
 
@@ -34,36 +33,19 @@ export const AccountPersonalSchema = z.object({
   zipCode: z.string(),
 });
 
-export const AccountPasswordSchema = z
-  .object({
-    oldPassword: z
-      .string()
-      .min(1, { error: 'Password is required!' })
-      .min(6, { error: 'Password must be at least 6 characters!' }),
-    newPassword: z.string().min(1, { error: 'New password is required!' }),
-    confirmNewPassword: z.string().min(1, { error: 'Confirm password is required!' }),
-  })
-  .refine((val) => val.oldPassword !== val.newPassword, {
-    error: 'New password must be different than old password',
-    path: ['newPassword'],
-  })
-  .refine((val) => val.newPassword === val.confirmNewPassword, {
-    error: 'Passwords do not match!',
-    path: ['confirmNewPassword'],
-  });
 
 // ----------------------------------------------------------------------
 
 export function AccountPersonalView() {
-  const passwordShow = useBoolean();
+  const { user, updateUser } = useAuth();
 
   const personalMethods = useForm({
     resolver: zodResolver(AccountPersonalSchema),
     defaultValues: {
-      firstName: 'Jayvion',
-      lastName: 'Simon',
-      email: 'nannie.abernathy70@yahoo.com',
-      phoneNumber: '365-374-4961',
+      firstName: '',
+      lastName: '',
+      email: '',
+      phoneNumber: '',
       birthday: null,
       gender: 'Male',
       streetAddress: '',
@@ -73,26 +55,57 @@ export function AccountPersonalView() {
     },
   });
 
+  useEffect(() => {
+    if (user) {
+      const nameParts = user.name ? user.name.split(' ') : ['', ''];
+      const firstName = user.firstName || nameParts[0] || '';
+      const lastName = user.lastName || nameParts.slice(1).join(' ') || '';
+
+      personalMethods.reset({
+        firstName,
+        lastName,
+        email: user.email || '',
+        phoneNumber: user.phone || user.phoneNumber || '',
+        birthday: user.birthday || null,
+        gender: user.gender || 'Male',
+        streetAddress: user.streetAddress || '',
+        zipCode: user.zipCode || '',
+        city: user.city || '',
+        country: user.country || '',
+      });
+    }
+  }, [user, personalMethods]);
+
   const onSubmitPersonal = personalMethods.handleSubmit(async (data) => {
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      personalMethods.reset();
-      console.info('DATA', data);
-    } catch (error) {
-      console.error(error);
-    }
-  });
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/auth/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phoneNumber: data.phoneNumber,
+          birthday: data.birthday,
+          gender: data.gender,
+          streetAddress: data.streetAddress,
+          city: data.city,
+          country: data.country,
+          zipCode: data.zipCode,
+        }),
+      });
 
-  const passwordMethods = useForm({
-    resolver: zodResolver(AccountPasswordSchema),
-    defaultValues: { oldPassword: '', newPassword: '', confirmNewPassword: '' },
-  });
+      if (!response.ok) {
+        throw new Error('Failed to update profile');
+      }
 
-  const onSubmitPassword = passwordMethods.handleSubmit(async (data) => {
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      passwordMethods.reset();
-      console.info('DATA', data);
+      const result = await response.json();
+      if (result.success) {
+        updateUser(result.data);
+      }
     } catch (error) {
       console.error(error);
     }
@@ -120,65 +133,6 @@ export function AccountPersonalView() {
         name="country"
         label="Country"
         placeholder="Choose a country"
-      />
-    </>
-  );
-
-  const renderChangePasswordForm = () => (
-    <>
-      <Field.Text
-        name="oldPassword"
-        label="Old password"
-        type={passwordShow.value ? 'text' : 'password'}
-        slotProps={{
-          input: {
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton onClick={passwordShow.onToggle} edge="end">
-                  <Iconify
-                    icon={passwordShow.value ? 'solar:eye-outline' : 'solar:eye-closed-outline'}
-                  />
-                </IconButton>
-              </InputAdornment>
-            ),
-          },
-        }}
-      />
-      <Field.Text
-        name="newPassword"
-        label="New password"
-        type={passwordShow.value ? 'text' : 'password'}
-        slotProps={{
-          input: {
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton onClick={passwordShow.onToggle} edge="end">
-                  <Iconify
-                    icon={passwordShow.value ? 'solar:eye-outline' : 'solar:eye-closed-outline'}
-                  />
-                </IconButton>
-              </InputAdornment>
-            ),
-          },
-        }}
-      />
-      <Field.Text
-        name="confirmNewPassword"
-        label="Confirm password"
-        type={passwordShow.value ? 'text' : 'password'}
-        slotProps={{
-          input: {
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton onClick={passwordShow.onToggle} edge="end">
-                  <Iconify
-                    icon={passwordShow.value ? 'solar:eye-outline' : 'solar:eye-closed-outline'}
-                  />
-                </IconButton>
-              </InputAdornment>
-            ),
-          },
-        }}
       />
     </>
   );
@@ -227,36 +181,6 @@ export function AccountPersonalView() {
       </div>
 
       <Divider sx={{ borderStyle: 'dashed', my: 5 }} />
-
-      <div>
-        <Typography component="h6" variant="h5">
-          Change password
-        </Typography>
-
-        <Form methods={passwordMethods} onSubmit={onSubmitPassword}>
-          <Box
-            sx={{
-              my: 3,
-              gap: 2.5,
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            {renderChangePasswordForm()}
-          </Box>
-
-          <Box sx={{ textAlign: 'right' }}>
-            <Button
-              color="inherit"
-              type="submit"
-              variant="contained"
-              loading={passwordMethods.formState.isSubmitting}
-            >
-              Save changes
-            </Button>
-          </Box>
-        </Form>
-      </div>
     </>
   );
 }
