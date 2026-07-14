@@ -78,9 +78,9 @@ export function VerifyView() {
         {renderForm()}
       </Form>
 
-      <FormResendCode onResendCode={() => {}} value={0} disabled={false} />
+      <FormResendCode onResendCode={() => { }} value={0} disabled={false} />
 
-      <FormReturnLink href={paths.centered.signIn} />
+      <FormReturnLink href={paths.signIn} />
     </>
   );
 }

@@ -199,16 +199,21 @@ const updateUserProfile = async (req, res, next) => {
 const updateUserLocation = async (req, res, next) => {
   try {
     const { lat, lng } = req.body;
-    const user = await User.findById(req.user._id);
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        $set: {
+          currentLocation: {
+            lat: Number(lat),
+            lng: Number(lng),
+            updatedAt: new Date(),
+          },
+        },
+      },
+      { new: true, runValidators: false }
+    );
 
     if (user) {
-      user.currentLocation = {
-        lat: Number(lat),
-        lng: Number(lng),
-        updatedAt: new Date(),
-      };
-      await user.save();
-
       res.json({
         success: true,
         message: 'Location updated successfully',

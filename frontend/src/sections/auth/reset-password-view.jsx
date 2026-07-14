@@ -78,7 +78,7 @@ export function ResetPasswordView() {
         {renderForm()}
       </Form>
 
-      <FormReturnLink href={paths.centered.signIn} />
+      <FormReturnLink href={paths.signIn} />
     </>
   );
 }

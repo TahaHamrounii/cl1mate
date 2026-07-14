@@ -1,18 +1,24 @@
 import 'leaflet/dist/leaflet.css';
 
 import L from 'leaflet';
+import dayjs from 'dayjs';
 import { useState, useEffect } from 'react';
 import { Popup, Marker, Polyline, TileLayer, MapContainer } from 'react-leaflet';
 
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import Grid from '@mui/material/Grid';
+import Table from '@mui/material/Table';
 import Stack from '@mui/material/Stack';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Select from '@mui/material/Select';
 import Dialog from '@mui/material/Dialog';
+import TableRow from '@mui/material/TableRow';
 import MenuItem from '@mui/material/MenuItem';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableHead from '@mui/material/TableHead';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import InputLabel from '@mui/material/InputLabel';
@@ -21,12 +27,14 @@ import FormControl from '@mui/material/FormControl';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
+import TableContainer from '@mui/material/TableContainer';
 import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
 
-import { fDateTime } from 'src/utils/format-time';
+import { fDate, fDateTime } from 'src/utils/format-time';
 
 import { Iconify } from 'src/components/iconify';
+import { Chart, useChart } from 'src/components/chart';
 
 // Custom icons for Leaflet map
 const createMarkerIcon = (color, text) =>
@@ -77,6 +85,36 @@ export function AdminDashboardView() {
 
   // Hotel detail modal
   const [viewHotel, setViewHotel] = useState(null);
+  const [roadPaths, setRoadPaths] = useState({});
+  const [hotelDashboardData, setHotelDashboardData] = useState(null);
+  const [hotelDashboardLoading, setHotelDashboardLoading] = useState(false);
+
+  useEffect(() => {
+    if (!viewHotel) {
+      setHotelDashboardData(null);
+      return;
+    }
+
+    const fetchHotelDashboard = async () => {
+      setHotelDashboardLoading(true);
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`http://localhost:5000/api/admin/hotels/${viewHotel._id}/dashboard`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (json.success) {
+          setHotelDashboardData(json.data);
+        }
+      } catch (err) {
+        console.error('Error fetching hotel dashboard for admin:', err);
+      } finally {
+        setHotelDashboardLoading(false);
+      }
+    };
+
+    fetchHotelDashboard();
+  }, [viewHotel]);
 
   const fetchDashboardData = async () => {
     try {
@@ -234,14 +272,6 @@ export function AdminDashboardView() {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   // Lists
   const users = data?.users || [];
   const hotels = data?.hotels || [];
@@ -249,8 +279,14 @@ export function AdminDashboardView() {
   const municipalities = users.filter((u) => u.role === 'municipality');
   const hotelUsers = users.filter((u) => u.role === 'hotel');
 
+  // Overall Statistics Calculations
+  const collections = data?.collectionsSummary?.collections || [];
+  const totalPnudWeight = collections.filter(c => c.collector === 'pnud' && c.status === 'completed').reduce((sum, c) => sum + c.weight, 0);
+  const totalMuniWeight = collections.filter(c => c.collector === 'municipality' && c.status === 'completed').reduce((sum, c) => sum + c.weight, 0);
+
   // Filter pending lists
   const pendingHotelUsers = hotelUsers.filter(hu => hu.status === 'pending' && !hotels.some(h => h.user?._id === hu._id));
+  const pendingHotelUsersWithProfile = hotelUsers.filter(hu => hu.status === 'pending' && hotels.some(h => h.user?._id === hu._id));
   const pendingDrivers = drivers.filter(d => d.status === 'pending');
   const pendingMunicipalities = municipalities.filter(m => m.status === 'pending');
 
@@ -273,10 +309,94 @@ export function AdminDashboardView() {
     return DEPOT_COORDS;
   };
   const truckCoords = getLastCompletedCoords();
-  const driverLiveCoords = data?.config?.activeDriver?.currentLocation?.lat && data?.config?.activeDriver?.currentLocation?.lng
-    ? [data.config.activeDriver.currentLocation.lat, data.config.activeDriver.currentLocation.lng]
+  const activeDriverUser = data?.users?.find(
+    (u) => u._id === activeDriverId || u._id === data?.config?.activeDriver?._id || u._id === data?.config?.activeDriver
+  );
+  const driverLiveCoords = activeDriverUser?.currentLocation?.lat && activeDriverUser?.currentLocation?.lng
+    ? [activeDriverUser.currentLocation.lat, activeDriverUser.currentLocation.lng]
     : null;
   const adminTruckCoords = driverLiveCoords || truckCoords;
+
+  useEffect(() => {
+    if (!routesData) return;
+
+    const fetchAllRoadPaths = async () => {
+      const paths = {};
+      const runs = routesData.pnud?.runs || [];
+
+      for (let runIdx = 0; runIdx < runs.length; runIdx++) {
+        const run = runs[runIdx];
+        const isFirstRun = runIdx === 0;
+        const startCoord = isFirstRun ? adminTruckCoords : DEPOT_COORDS;
+        const stopCoords = run.route.map((stop) => [stop.location.lat, stop.location.lng]);
+        const straightPath = [startCoord, ...stopCoords, DEPOT_COORDS];
+
+        try {
+          const coordString = straightPath.map((c) => `${c[1]},${c[0]}`).join(';');
+          const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+          const response = await fetch(url);
+          const resJson = await response.json();
+          if (resJson.code === 'Ok' && resJson.routes?.[0]?.geometry?.coordinates) {
+            paths[run.runNumber] = resJson.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
+          } else {
+            paths[run.runNumber] = straightPath;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch OSRM road path for run ${run.runNumber}:`, err);
+          paths[run.runNumber] = straightPath;
+        }
+      }
+      setRoadPaths(paths);
+    };
+
+    fetchAllRoadPaths();
+  }, [routesData, adminTruckCoords]);
+
+  // Calculations for hotel detail view modal charts
+  const modalSensorHistory = hotelDashboardData?.sensorHistory || [];
+  const modalDailyMap = {};
+  modalSensorHistory.forEach((r) => {
+    const day = dayjs(r.timestamp).format('MMM D');
+    if (!modalDailyMap[day]) modalDailyMap[day] = { weight: [], organicMatter: [] };
+    modalDailyMap[day].weight.push(r.weight);
+    modalDailyMap[day].organicMatter.push(r.organicMatter);
+  });
+  const modalDailyEntries = Object.entries(modalDailyMap).slice(-30);
+  const modalChartLabels = modalDailyEntries.map(([d]) => d);
+  const modalWeightSeries = modalDailyEntries.map(([, v]) =>
+    Math.round(v.weight.reduce((a, b) => a + b, 0) / v.weight.length)
+  );
+  const modalQualitySeries = modalDailyEntries.map(([, v]) =>
+    parseFloat((v.organicMatter.reduce((a, b) => a + b, 0) / v.organicMatter.length).toFixed(1))
+  );
+
+  const modalWeightChartOptions = useChart({
+    colors: ['#22C55E'],
+    fill: { type: 'gradient' },
+    xaxis: { categories: modalChartLabels },
+    yaxis: { labels: { formatter: (v) => `${v} kg` } },
+    tooltip: { y: { formatter: (v) => `${v} kg` } },
+  });
+
+  const modalQualityChartOptions = useChart({
+    colors: ['#2065D1'],
+    fill: { type: 'gradient' },
+    xaxis: { categories: modalChartLabels },
+    yaxis: {
+      min: 80,
+      max: 100,
+      labels: { formatter: (v) => `${v}%` },
+    },
+    tooltip: { y: { formatter: (v) => `${v}%` } },
+  });
+
+  if (loading) {
+    return (
+      <Box sx={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto', px: { xs: 2, md: 5 }, py: 4, display: 'flex', flexDirection: 'column', alignSelf: 'center' }}>
@@ -289,6 +409,69 @@ export function AdminDashboardView() {
           Manage collection parameters, verify active driver trajectory, and activate user profiles.
         </Typography>
       </Box>
+
+      {/* Overall Statistics KPI Row */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {/* KPI 1 */}
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'success.lighter', color: 'success.dark' }}>
+              <Iconify icon="solar:leaf-bold" width={28} />
+            </Box>
+            <div>
+              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                {((totalPnudWeight || 0) / 1000).toFixed(1)}t
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Recycled (PNUD)</Typography>
+            </div>
+          </Card>
+        </Grid>
+
+        {/* KPI 2 */}
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'warning.lighter', color: 'warning.dark' }}>
+              <Iconify icon="solar:trash-bin-minimalistic-bold" width={28} />
+            </Box>
+            <div>
+              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                {((totalMuniWeight || 0) / 1000).toFixed(1)}t
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Redirected (Muni)</Typography>
+            </div>
+          </Card>
+        </Grid>
+
+        {/* KPI 3 */}
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'primary.lighter', color: 'primary.dark' }}>
+              <Iconify icon="solar:delivery-bold" width={28} />
+            </Box>
+            <div>
+              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                {collections.filter(c => c.status === 'completed').length}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Completed Pickups</Typography>
+            </div>
+          </Card>
+        </Grid>
+
+        {/* KPI 4 */}
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'secondary.lighter', color: 'secondary.dark' }}>
+              <Iconify icon="solar:buildings-2-bold" width={28} />
+            </Box>
+            <div>
+              <Typography variant="h5" sx={{ fontWeight: 'bold' }}>
+                {hotels.length}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Active Hotels</Typography>
+            </div>
+          </Card>
+        </Grid>
+      </Grid>
 
       <Grid container spacing={3}>
         {/* Settings Panel */}
@@ -368,74 +551,87 @@ export function AdminDashboardView() {
               )}
             </Box>
 
-            <Box sx={{ flexGrow: 1, height: 420, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
-              <MapContainer center={DEPOT_COORDS} zoom={11} style={{ height: '100%', width: '100%' }}>
-                <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+            {activeDriverId ? (
+              <Box sx={{ flexGrow: 1, height: 420, borderRadius: 2, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+                <MapContainer center={DEPOT_COORDS} zoom={11} style={{ height: '100%', width: '100%' }}>
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
 
-                {/* Depot */}
-                <Marker position={DEPOT_COORDS} icon={createMarkerIcon('#FF3030', 'Depot')}>
-                  <Popup>
-                    <Typography variant="subtitle2">PNUD Methanization Depot</Typography>
-                  </Popup>
-                </Marker>
+                  {/* Depot */}
+                  <Marker position={DEPOT_COORDS} icon={createMarkerIcon('#FF3030', 'Depot')}>
+                    <Popup>
+                      <Typography variant="subtitle2">PNUD Methanization Depot</Typography>
+                    </Popup>
+                  </Marker>
 
-                {/* Route markers */}
-                {pnudRoute.map((stop, idx) => {
-                  const isDone = completedIds.includes(stop.id);
-                  const color = isDone ? '#919EAB' : '#22C55E';
-                  return (
-                    <Marker
-                      key={stop.id}
-                      position={[stop.location.lat, stop.location.lng]}
-                      icon={createMarkerIcon(color, isDone ? '✓' : idx + 1)}
-                    >
-                      <Popup>
-                        <Typography variant="subtitle2">{stop.name}</Typography>
-                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                          Status: {isDone ? 'Collected' : 'Pending'} &bull; Weight: {stop.weight} kg
-                        </Typography>
-                      </Popup>
-                    </Marker>
-                  );
-                })}
+                  {/* Route markers */}
+                  {pnudRoute.map((stop, idx) => {
+                    const isDone = completedIds.includes(stop.id);
+                    const color = isDone ? '#919EAB' : '#22C55E';
+                    return (
+                      <Marker
+                        key={stop.id}
+                        position={[stop.location.lat, stop.location.lng]}
+                        icon={createMarkerIcon(color, isDone ? '✓' : idx + 1)}
+                      >
+                        <Popup>
+                          <Typography variant="subtitle2">{stop.name}</Typography>
+                          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                            Status: {isDone ? 'Collected' : 'Pending'} &bull; Weight: {stop.weight} kg
+                          </Typography>
+                        </Popup>
+                      </Marker>
+                    );
+                  })}
 
-                {/* Path lines - multiple PNUD runs shown in different colors */}
-                {pnudRuns.map((run, runIdx) => {
-                  const runPath = [
-                    DEPOT_COORDS,
-                    ...run.route.map((stop) => [stop.location.lat, stop.location.lng]),
-                    DEPOT_COORDS,
-                  ];
-                  // Colors matching requirement: Run 1 = Green, Run 2 = Blue, Run 3 = Orange, Run 4 = Purple
-                  const runColors = ['#22C55E', '#1890FF', '#FFAB00', '#8E33FF', '#006C9C', '#B71D18'];
-                  const color = runColors[runIdx % runColors.length];
-                  const isFirstRun = runIdx === 0;
+                  {/* Path lines - multiple PNUD runs shown in different colors */}
+                  {pnudRuns.map((run, runIdx) => {
+                    const isFirstRun = runIdx === 0;
+                    const startCoord = isFirstRun ? adminTruckCoords : DEPOT_COORDS;
+                    const runPath = [
+                      startCoord,
+                      ...run.route.map((stop) => [stop.location.lat, stop.location.lng]),
+                      DEPOT_COORDS,
+                    ];
+                    // Colors matching requirement: Run 1 = Green, Run 2 = Blue, Run 3 = Orange, Run 4 = Purple
+                    const runColors = ['#22C55E', '#1890FF', '#FFAB00', '#8E33FF', '#006C9C', '#B71D18'];
+                    const color = runColors[runIdx % runColors.length];
 
-                  return (
-                    <Polyline
-                      key={run.runNumber}
-                      positions={runPath}
-                      color={color}
-                      weight={4}
-                      dashArray={isFirstRun ? 'none' : '5, 10'} // Solid for the best/current route, dashed for upcoming routes
-                    />
-                  );
-                })}
+                    return (
+                      <Polyline
+                        key={run.runNumber}
+                        positions={roadPaths[run.runNumber] || runPath}
+                        color={color}
+                        weight={4}
+                        dashArray={isFirstRun ? 'none' : '5, 10'} // Solid for the best/current route, dashed for upcoming routes
+                      />
+                    );
+                  })}
 
-                {/* Truck Current Location Marker */}
-                <Marker position={adminTruckCoords} icon={truckIcon}>
-                  <Popup>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>🚚 Collection Truck</Typography>
-                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      {driverLiveCoords ? 'Live GPS Location' : 'Last Completed Stop Location'}
-                    </Typography>
-                  </Popup>
-                </Marker>
-              </MapContainer>
-            </Box>
+                  {/* Truck Current Location Marker */}
+                  <Marker position={adminTruckCoords} icon={truckIcon}>
+                    <Popup>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>🚚 Collection Truck</Typography>
+                      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                        {driverLiveCoords ? 'Live GPS Location' : 'Last Completed Stop Location'}
+                      </Typography>
+                    </Popup>
+                  </Marker>
+                </MapContainer>
+              </Box>
+            ) : (
+              <Box sx={{ flexGrow: 1, height: 420, borderRadius: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.neutral', border: '1px dashed', borderColor: 'divider', p: 3, textAlign: 'center' }}>
+                <Iconify icon="solar:map-bold-duotone" width={64} sx={{ color: 'text.disabled', mb: 2 }} />
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 0.5 }}>
+                  Map View Disabled
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Please assign an active driver in Collection Controls to track their live location, route progress, and collection trajectory.
+                </Typography>
+              </Box>
+            )}
           </Card>
         </Grid>
       </Grid>
@@ -524,9 +720,34 @@ export function AdminDashboardView() {
                 </Card>
               ))}
 
-              {pendingDrivers.length === 0 && pendingMunicipalities.length === 0 && pendingHotelUsers.length === 0 && (
-                <Alert severity="success">No pending account activations or profile link requests.</Alert>
-              )}
+              {/* Hotel Users with Profiles Activation */}
+              {pendingHotelUsersWithProfile.map((hu) => (
+                <Card key={hu._id} variant="outlined" sx={{ p: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                      {hu.name} (Hotel)
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {hu.email} &bull; Profile already linked
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1}>
+                    <Button variant="contained" color="success" size="small" onClick={() => handleUserStatusUpdate(hu._id, 'active')}>
+                      Accept
+                    </Button>
+                    <Button variant="outlined" color="error" size="small" onClick={() => handleUserStatusUpdate(hu._id, 'rejected')}>
+                      Reject
+                    </Button>
+                  </Stack>
+                </Card>
+              ))}
+
+              {pendingDrivers.length === 0 &&
+                pendingMunicipalities.length === 0 &&
+                pendingHotelUsers.length === 0 &&
+                pendingHotelUsersWithProfile.length === 0 && (
+                  <Alert severity="success">No pending account activations or profile link requests.</Alert>
+                )}
             </Box>
           </Card>
         </Grid>
@@ -697,7 +918,7 @@ export function AdminDashboardView() {
       </Dialog>
 
       {/* Hotel Detail View Modal */}
-      <Dialog open={!!viewHotel} onClose={() => setViewHotel(null)} maxWidth="sm" fullWidth>
+      <Dialog open={!!viewHotel} onClose={() => setViewHotel(null)} maxWidth="lg" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Iconify icon="solar:buildings-2-bold" width={28} />
@@ -711,93 +932,193 @@ export function AdminDashboardView() {
           </Box>
         </DialogTitle>
         <DialogContent>
-          {viewHotel && (
+          {hotelDashboardLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+              <CircularProgress />
+            </Box>
+          ) : hotelDashboardData ? (
             <Stack spacing={3} sx={{ mt: 1 }}>
-              {/* Sensor Gauges Row */}
-              <Box sx={{ display: 'flex', gap: 3 }}>
-                {/* Weight Gauge */}
-                <Card sx={{ p: 2.5, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>Current Waste Weight</Typography>
+              {/* Metric Cards & Info */}
+              <Box sx={{ display: 'flex', gap: 2.5, flexDirection: { xs: 'column', sm: 'row' } }}>
+                {/* Gauge Weight */}
+                <Card sx={{ p: 2.5, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, fontWeight: 'bold' }}>Current Waste Weight</Typography>
                   <Box sx={{ position: 'relative', display: 'inline-flex', mb: 1 }}>
                     <CircularProgress
                       variant="determinate"
-                      value={Math.min(((viewHotel.sensors?.weight || 0) / 1200) * 100, 100)}
+                      value={Math.min(((hotelDashboardData.hotel.sensors?.weight || 0) / 1200) * 100, 100)}
                       size={90}
                       thickness={5}
-                      color={(viewHotel.sensors?.weight || 0) > 1000 ? 'error' : 'success'}
+                      color={(hotelDashboardData.hotel.sensors?.weight || 0) > 1000 ? 'error' : 'success'}
                     />
                     <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-                      <Typography variant="h6">{viewHotel.sensors?.weight || 0}</Typography>
+                      <Typography variant="h6">{hotelDashboardData.hotel.sensors?.weight || 0}</Typography>
                       <Typography variant="caption" color="text.secondary">kg</Typography>
                     </Box>
                   </Box>
                   <Typography variant="caption" color="text.secondary">Max: 1,200 kg</Typography>
                 </Card>
 
-                {/* Organic Quality Gauge */}
-                <Card sx={{ p: 2.5, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>Organic Quality</Typography>
+                {/* Gauge Organic */}
+                <Card sx={{ p: 2.5, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5, fontWeight: 'bold' }}>Organic Quality</Typography>
                   <Box sx={{ position: 'relative', display: 'inline-flex', mb: 1 }}>
                     <CircularProgress
                       variant="determinate"
-                      value={viewHotel.sensors?.organicMatter || 0}
+                      value={hotelDashboardData.hotel.sensors?.organicMatter || 0}
                       size={90}
                       thickness={5}
-                      color={(viewHotel.sensors?.organicMatter || 0) >= 95 ? 'primary' : 'warning'}
+                      color={(hotelDashboardData.hotel.sensors?.organicMatter || 0) >= 95 ? 'primary' : 'warning'}
                     />
                     <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Typography variant="h6">{viewHotel.sensors?.organicMatter || 0}%</Typography>
+                      <Typography variant="h6">{hotelDashboardData.hotel.sensors?.organicMatter || 0}%</Typography>
                     </Box>
                   </Box>
                   <Typography variant="caption" color="text.secondary">PNUD threshold: 95%</Typography>
                 </Card>
+
+                {/* Metrics */}
+                <Card sx={{ p: 2.5, flex: 1.2, display: 'flex', flexDirection: 'column', gap: 1.5, justifyContent: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box sx={{ width: 36, height: 36, borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'success.lighter', color: 'success.dark' }}>
+                      <Iconify icon="solar:trash-bin-trash-bold" width={22} />
+                    </Box>
+                    <div>
+                      <Typography variant="h6">
+                        {((hotelDashboardData.metrics?.totalCollected || 0) / 1000).toFixed(1)} tons
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">Total Collected</Typography>
+                    </div>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box sx={{ width: 36, height: 36, borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'primary.lighter', color: 'primary.dark' }}>
+                      <Iconify icon="solar:check-circle-bold" width={22} />
+                    </Box>
+                    <div>
+                      <Typography variant="h6">{hotelDashboardData.metrics?.totalPickups || 0}</Typography>
+                      <Typography variant="caption" color="text.secondary">Successful Pickups</Typography>
+                    </div>
+                  </Box>
+                </Card>
               </Box>
 
-              {/* PNUD Qualification Bar */}
-              <Card sx={{ p: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="subtitle2">PNUD Qualification</Typography>
-                  <Typography variant="subtitle2" sx={{ color: (viewHotel.sensors?.organicMatter || 0) >= 95 && (viewHotel.sensors?.weight || 0) >= (viewHotel.config?.minWeightThreshold || 100) ? 'success.main' : 'warning.main', fontWeight: 'bold' }}>
-                    {(viewHotel.sensors?.organicMatter || 0) >= 95 && (viewHotel.sensors?.weight || 0) >= (viewHotel.config?.minWeightThreshold || 100) ? '✅ Qualifies' : '⚠️ Does not qualify'}
+              {/* Qualification & General details */}
+              <Box sx={{ display: 'flex', gap: 2.5, flexDirection: { xs: 'column', sm: 'row' } }}>
+                <Card sx={{ p: 2, flex: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                    <Typography variant="subtitle2">PNUD Qualification</Typography>
+                    <Typography variant="subtitle2" sx={{ color: (hotelDashboardData.hotel.sensors?.organicMatter || 0) >= 95 && (hotelDashboardData.hotel.sensors?.weight || 0) >= (hotelDashboardData.hotel.config?.minWeightThreshold || 100) ? 'success.main' : 'warning.main', fontWeight: 'bold' }}>
+                      {(hotelDashboardData.hotel.sensors?.organicMatter || 0) >= 95 && (hotelDashboardData.hotel.sensors?.weight || 0) >= (hotelDashboardData.hotel.config?.minWeightThreshold || 100) ? '✅ Qualifies' : '⚠️ Redirected'}
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={Math.min((hotelDashboardData.hotel.sensors?.organicMatter || 0), 100)}
+                    color={(hotelDashboardData.hotel.sensors?.organicMatter || 0) >= 95 ? 'success' : 'warning'}
+                    sx={{ height: 8, borderRadius: 4 }}
+                  />
+                </Card>
+
+                <Card sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="caption" color="text.secondary">Location:</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                      {hotelDashboardData.hotel.location?.lat?.toFixed(4)}, {hotelDashboardData.hotel.location?.lng?.toFixed(4)}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">Threshold:</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                      {hotelDashboardData.hotel.config?.minWeightThreshold || 100} kg
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary">Last Update:</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
+                      {hotelDashboardData.hotel.sensors?.lastUpdated ? fDateTime(hotelDashboardData.hotel.sensors.lastUpdated) : 'Never'}
+                    </Typography>
+                  </Box>
+                </Card>
+              </Box>
+
+              {/* Charts Side-by-Side */}
+              <Box sx={{ display: 'flex', gap: 2.5, flexDirection: { xs: 'column', md: 'row' } }}>
+                <Card sx={{ p: 2, flex: 1, minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 1 }}>
+                    Waste Accumulation History (kg)
                   </Typography>
+                  <Chart
+                    type="area"
+                    series={[{ name: 'Weight (kg)', data: modalWeightSeries }]}
+                    options={modalWeightChartOptions}
+                    height={200}
+                  />
+                </Card>
+
+                <Card sx={{ p: 2, flex: 1, minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 1 }}>
+                    Organic Matter Quality (%)
+                  </Typography>
+                  <Chart
+                    type="area"
+                    series={[{ name: 'Organic Quality (%)', data: modalQualitySeries }]}
+                    options={modalQualityChartOptions}
+                    height={200}
+                  />
+                </Card>
+              </Box>
+
+              {/* Recent Collections Table */}
+              <Card sx={{ overflow: 'hidden' }}>
+                <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>Recent Waste Collections</Typography>
                 </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={Math.min((viewHotel.sensors?.organicMatter || 0), 100)}
-                  color={(viewHotel.sensors?.organicMatter || 0) >= 95 ? 'success' : 'warning'}
-                  sx={{ height: 8, borderRadius: 4 }}
-                />
+                <TableContainer sx={{ maxHeight: 200 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Collector</TableCell>
+                        <TableCell>Weight</TableCell>
+                        <TableCell>Organic Matter</TableCell>
+                        <TableCell>Outcome</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {hotelDashboardData.history?.map((row) => (
+                        <TableRow key={row._id}>
+                          <TableCell>{fDate(row.collectedAt)}</TableCell>
+                          <TableCell sx={{ textTransform: 'capitalize' }}>{row.collector}</TableCell>
+                          <TableCell>{row.weight} kg</TableCell>
+                          <TableCell>{row.organicMatter}%</TableCell>
+                          <TableCell>
+                            <Box
+                              sx={{
+                                px: 1, py: 0.25, borderRadius: 0.5, display: 'inline-block',
+                                fontSize: 11, fontWeight: 'bold',
+                                bgcolor: row.collector === 'pnud' ? 'primary.lighter' : 'warning.lighter',
+                                color: row.collector === 'pnud' ? 'primary.dark' : 'warning.dark',
+                              }}
+                            >
+                              {row.collector === 'pnud' ? 'Recycled' : 'Redirected'}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {(hotelDashboardData.history || []).length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} align="center" sx={{ py: 3 }}>No recent collections.</TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               </Card>
-
-              {/* Details Grid */}
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Card sx={{ p: 2, flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary">Location</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                    {viewHotel.location?.lat?.toFixed(4)}, {viewHotel.location?.lng?.toFixed(4)}
-                  </Typography>
-                </Card>
-                <Card sx={{ p: 2, flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary">Min Weight Threshold</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{viewHotel.config?.minWeightThreshold || 100} kg</Typography>
-                </Card>
-              </Box>
-
-              <Box sx={{ display: 'flex', gap: 2 }}>
-                <Card sx={{ p: 2, flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary">Last Sensor Update</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                    {viewHotel.sensors?.lastUpdated ? fDateTime(viewHotel.sensors.lastUpdated) : 'Never'}
-                  </Typography>
-                </Card>
-                <Card sx={{ p: 2, flex: 1 }}>
-                  <Typography variant="caption" color="text.secondary">Linked Account</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
-                    {viewHotel.user?.email || viewHotel.user?.name || 'N/A'}
-                  </Typography>
-                </Card>
-              </Box>
             </Stack>
+          ) : (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <Typography color="text.secondary">No hotel profile loaded.</Typography>
+            </Box>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>

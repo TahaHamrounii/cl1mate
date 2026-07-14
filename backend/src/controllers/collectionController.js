@@ -46,7 +46,7 @@ const getOptimizedDailyRoutes = async (req, res, next) => {
 
     // 4. Optimize routes using the utility helper
     // Depot is set in Djerba (default)
-    const routes = optimizeRoutes(hotels, config);
+    const routes = optimizeRoutes(hotels, config, completedToday);
 
     res.json({
       success: true,

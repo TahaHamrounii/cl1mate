@@ -59,6 +59,7 @@ export function MunicipalityDashboardView() {
   const [collectedQuality, setCollectedQuality] = useState('');
 
   const [userGpsCoords, setUserGpsCoords] = useState(null);
+  const [roadPath, setRoadPath] = useState([]);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -145,14 +146,6 @@ export function MunicipalityDashboardView() {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   const muniRoute = routesData?.municipality?.route || [];
   const pnudRoute = routesData?.pnud?.route || [];
 
@@ -183,6 +176,38 @@ export function MunicipalityDashboardView() {
   });
 
   const activePath = muniRoute.map((r) => [r.location.lat, r.location.lng]);
+
+  useEffect(() => {
+    if (activePath.length < 2) {
+      setRoadPath(activePath);
+      return;
+    }
+    const fetchMuniRoadPath = async () => {
+      try {
+        const coordString = activePath.map((c) => `${c[1]},${c[0]}`).join(';');
+        const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
+          setRoadPath(data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]));
+        } else {
+          setRoadPath(activePath);
+        }
+      } catch (err) {
+        console.error('Failed to fetch OSRM road path for municipality:', err);
+        setRoadPath(activePath);
+      }
+    };
+    fetchMuniRoadPath();
+  }, [routesData, activePath]);
+
+  if (loading) {
+    return (
+      <Box sx={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto', px: { xs: 2, md: 5 }, py: 4 }}>
@@ -300,7 +325,7 @@ export function MunicipalityDashboardView() {
             })}
 
             {activePath.length > 1 && (
-              <Polyline positions={activePath} color="#FFAB00" weight={4} dashArray="5, 10" />
+              <Polyline positions={roadPath.length > 0 ? roadPath : activePath} color="#FFAB00" weight={4} dashArray="5, 10" />
             )}
           </MapContainer>
         </Box>

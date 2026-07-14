@@ -24,7 +24,7 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
  * @param {Object} depotLocation - {lat, lng} coordinates of the PNUD methanization facility (depot)
  * @returns {Object} Optimized route results
  */
-const optimizeRoutes = (hotels, config, depotLocation = { lat: 33.8075, lng: 10.8451 }) => {
+const optimizeRoutes = (hotels, config, completedToday = [], depotLocation = { lat: 33.8075, lng: 10.8451 }) => {
   const maxCapacityKg = (config.truckCapacityTons || 16.7) * 1000;
   const minOrganic = config.minOrganicPercentage || 95;
   const minWeight = config.minWeightThreshold || 100;
@@ -34,6 +34,33 @@ const optimizeRoutes = (hotels, config, depotLocation = { lat: 33.8075, lng: 10.
 
   // 1. Initial Filtering & Classification
   hotels.forEach((hotel) => {
+    // Check if there is a completed collection record for this hotel today
+    const completedRecord = completedToday.find(
+      (c) => c.hotel.toString() === hotel._id.toString()
+    );
+
+    if (completedRecord) {
+      const data = {
+        id: hotel._id,
+        name: hotel.name,
+        location: hotel.location,
+        weight: completedRecord.weight,
+        organicMatter: completedRecord.organicMatter,
+        isCompleted: true,
+      };
+
+      if (completedRecord.collector === 'pnud') {
+        pnudHotels.push(data);
+      } else {
+        municipalHotels.push({
+          ...data,
+          reason: completedRecord.redirectionReason || 'low_quality',
+          details: `Collected by municipality.`,
+        });
+      }
+      return;
+    }
+
     const weight = hotel.sensors.weight || 0;
     const organic = hotel.sensors.organicMatter || 0;
 
@@ -43,6 +70,7 @@ const optimizeRoutes = (hotels, config, depotLocation = { lat: 33.8075, lng: 10.
       location: hotel.location,
       weight,
       organicMatter: organic,
+      isCompleted: false,
     };
 
     if (organic < minOrganic) {

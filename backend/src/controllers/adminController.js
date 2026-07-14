@@ -2,6 +2,8 @@ const User = require('../models/User');
 const Hotel = require('../models/Hotel');
 const SystemConfig = require('../models/SystemConfig');
 const CollectionRecord = require('../models/CollectionRecord');
+const SensorReading = require('../models/SensorReading');
+const { seedHotelData } = require('../utils/hotelSeeder');
 
 /**
  * @desc    Get system global configs, users, hotels, collections, and stats
@@ -12,6 +14,14 @@ const getAdminDashboard = async (req, res, next) => {
   try {
     const users = await User.find({}).sort({ createdAt: -1 });
     const hotels = await Hotel.find({}).populate('user');
+    
+    // Seed any hotels that do not have sensor readings seeded yet (ensures recent collections exist)
+    for (const hotel of hotels) {
+      const readingCount = await SensorReading.countDocuments({ hotel: hotel._id });
+      if (readingCount === 0) {
+        await seedHotelData(hotel._id);
+      }
+    }
     
     // Count sensors by status
     const sensorStats = {
@@ -127,6 +137,9 @@ const createHotelProfile = async (req, res, next) => {
         minWeightThreshold: minWeightThreshold !== undefined ? Number(minWeightThreshold) : 100,
       },
     });
+
+    // Seed telemetry data and collections history for the new hotel
+    await seedHotelData(hotel._id);
 
     res.status(201).json({
       success: true,
@@ -253,10 +266,73 @@ const associateHotelUser = async (req, res, next) => {
     user.status = 'active';
     await user.save();
 
+    // Seed telemetry data and collections history for the associated hotel
+    await seedHotelData(hotel._id);
+
     res.json({
       success: true,
       message: 'Hotel user activated and associated successfully',
       data: hotel,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get dashboard metrics for a specific hotel (For Admin eye icon)
+ * @route   GET /api/admin/hotels/:id/dashboard
+ * @access  Private (Admin role)
+ */
+const getHotelDashboardForAdmin = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const hotel = await Hotel.findById(id).populate('user');
+    if (!hotel) {
+      res.status(404);
+      return next(new Error('Hotel profile not found'));
+    }
+
+    const collectionHistory = await CollectionRecord.find({
+      hotel: id,
+      status: 'completed',
+    }).sort({ collectedAt: -1 });
+
+    const totalCollected = collectionHistory.reduce((sum, record) => sum + record.weight, 0);
+
+    const upcomingCollections = await CollectionRecord.find({
+      hotel: id,
+      status: 'pending',
+    }).sort({ scheduledDate: 1 });
+
+    const currentYear = new Date().getFullYear();
+    const monthlyStats = Array(12).fill(0);
+    collectionHistory.forEach((record) => {
+      const date = new Date(record.collectedAt || record.updatedAt);
+      if (date.getFullYear() === currentYear) {
+        const month = date.getMonth();
+        monthlyStats[month] += record.weight;
+      }
+    });
+
+    const sensorHistory = await SensorReading.find({ hotel: id })
+      .sort({ timestamp: -1 })
+      .limit(300);
+
+    res.json({
+      success: true,
+      data: {
+        hotel,
+        metrics: {
+          totalCollected,
+          totalPickups: collectionHistory.length,
+          upcomingPickupsCount: upcomingCollections.length,
+        },
+        upcomingCollections,
+        history: collectionHistory.slice(0, 10),
+        sensorHistory: sensorHistory.reverse(),
+        monthlyStats,
+      },
     });
   } catch (error) {
     next(error);
@@ -271,4 +347,5 @@ module.exports = {
   getUsers,
   updateUserStatus,
   associateHotelUser,
+  getHotelDashboardForAdmin,
 };

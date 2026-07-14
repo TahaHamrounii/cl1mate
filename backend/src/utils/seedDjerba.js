@@ -136,8 +136,9 @@ const seed = async () => {
         },
       });
 
-      // 3. Seed sensor readings (history) for charts (last 30 days)
+      // 3. Seed sensor readings (history) and collection logs (last 30 days)
       const readings = [];
+      const collections = [];
       const now = new Date();
       for (let dayOffset = 29; dayOffset >= 0; dayOffset--) {
         const ts = new Date(now.getTime() - dayOffset * 24 * 60 * 60 * 1000);
@@ -150,8 +151,32 @@ const seed = async () => {
           organicMatter,
           timestamp: ts,
         });
+
+        // Seed collection history (every 3 days)
+        if (dayOffset % 3 === 0 && dayOffset > 0) {
+          const colWeight = Math.max(0, Math.floor(hData.weight * (0.85 + Math.random() * 0.3)));
+          const colOrganic = Math.min(100, Math.max(80, Math.floor(hData.organicMatter * (0.96 + Math.random() * 0.06))));
+          const isPnud = colOrganic >= 95;
+          const redirectionReason = !isPnud
+            ? (colOrganic < 90 ? 'low_quality' : colWeight < 100 ? 'low_quantity' : 'low_quality')
+            : 'none';
+
+          collections.push({
+            hotel: hotel._id,
+            collector: isPnud ? 'pnud' : 'municipality',
+            weight: colWeight,
+            organicMatter: colOrganic,
+            status: 'completed',
+            redirectionReason,
+            collectedAt: new Date(ts.getTime() - 2 * 3600 * 1000), // 2 hours before reading
+            scheduledDate: new Date(ts.getTime() - 2 * 3600 * 1000),
+          });
+        }
       }
       await SensorReading.insertMany(readings);
+      if (collections.length > 0) {
+        await CollectionRecord.insertMany(collections);
+      }
 
       console.log(`Seeded hotel and readings for: ${hData.name}`);
     }

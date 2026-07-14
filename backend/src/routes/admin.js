@@ -8,6 +8,7 @@ const {
   getUsers,
   updateUserStatus,
   associateHotelUser,
+  getHotelDashboardForAdmin,
 } = require('../controllers/adminController');
 const { protect, authorizeRoles } = require('../middleware/auth');
 
@@ -27,5 +28,6 @@ router.post('/associate-hotel', associateHotelUser);
 // Admin Hotel profiles CRUD
 router.post('/hotels', createHotelProfile);
 router.delete('/hotels/:id', deleteHotelProfile);
+router.get('/hotels/:id/dashboard', getHotelDashboardForAdmin);
 
 module.exports = router;

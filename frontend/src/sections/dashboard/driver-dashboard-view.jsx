@@ -20,6 +20,8 @@ import DialogActions from '@mui/material/DialogActions';
 import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
 
+import { Iconify } from 'src/components/iconify';
+
 import { useAuth } from 'src/auth/hooks/use-auth';
 
 // Fix for leaflet icon marker default resolution
@@ -62,6 +64,7 @@ export function DriverDashboardView() {
   const [collectedQuality, setCollectedQuality] = useState('');
 
   const [driverGpsCoords, setDriverGpsCoords] = useState(null);
+  const [roadPaths, setRoadPaths] = useState({});
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -178,24 +181,6 @@ export function DriverDashboardView() {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (errorMsg) {
-    return (
-      <Box sx={{ p: 4 }}>
-        <Alert severity="error" variant="filled">
-          {errorMsg}
-        </Alert>
-      </Box>
-    );
-  }
-
   const pnudRoute = routesData?.pnud?.route || [];
   const muniRoute = routesData?.municipality?.route || [];
 
@@ -243,6 +228,86 @@ export function DriverDashboardView() {
     return DEPOT_COORDS;
   };
   const truckCoords = driverGpsCoords || getLastCompletedCoords();
+
+  useEffect(() => {
+    if (!routesData) return;
+
+    const fetchAllRoadPaths = async () => {
+      const paths = {};
+      const runs = routesData.pnud?.runs || [];
+
+      for (let runIdx = 0; runIdx < runs.length; runIdx++) {
+        const run = runs[runIdx];
+        const isFirstRun = runIdx === 0;
+        const startCoord = isFirstRun ? truckCoords : DEPOT_COORDS;
+        const stopCoords = run.route.map((stop) => [stop.location.lat, stop.location.lng]);
+        const straightPath = [startCoord, ...stopCoords, DEPOT_COORDS];
+
+        try {
+          const coordString = straightPath.map((c) => `${c[1]},${c[0]}`).join(';');
+          const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+          const response = await fetch(url);
+          const data = await response.json();
+          if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
+            paths[run.runNumber] = data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
+          } else {
+            paths[run.runNumber] = straightPath;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch OSRM road path for run ${run.runNumber}:`, err);
+          paths[run.runNumber] = straightPath;
+        }
+      }
+      setRoadPaths(paths);
+    };
+
+    fetchAllRoadPaths();
+  }, [routesData, truckCoords]);
+
+  if (loading) {
+    return (
+      <Box sx={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (errorMsg) {
+    return (
+      <Box sx={{ p: 4 }}>
+        <Alert severity="error" variant="filled">
+          {errorMsg}
+        </Alert>
+      </Box>
+    );
+  }
+
+  const isActiveDriver = routesData?.config?.activeDriver
+    ? (routesData.config.activeDriver._id || routesData.config.activeDriver) === user?._id
+    : false;
+
+  if (routesData && !isActiveDriver) {
+    return (
+      <Box sx={{ width: '100%', maxWidth: 500, mx: 'auto', px: 3, py: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '80vh', textAlign: 'center' }}>
+        <Card sx={{ p: 4, width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+          <Box sx={{ width: 80, height: 80, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'error.lighter', color: 'error.main' }}>
+            <Iconify icon="solar:lock-bold-duotone" width={48} />
+          </Box>
+          <div>
+            <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 1 }}>
+              Dashboard Locked
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              You are not currently assigned as the active driver in the system.
+            </Typography>
+            <Typography variant="caption" sx={{ display: 'block', mt: 2.5, color: 'text.disabled' }}>
+              Please contact the municipality administrator to assign your account as the active collection driver.
+            </Typography>
+          </div>
+        </Card>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto', px: { xs: 2, md: 5 }, py: 4 }}>
@@ -387,7 +452,7 @@ export function DriverDashboardView() {
               return (
                 <Polyline
                   key={run.runNumber}
-                  positions={runPath}
+                  positions={roadPaths[run.runNumber] || runPath}
                   color={color}
                   weight={4}
                   dashArray={isFirstRun ? 'none' : '5, 10'} // Solid for the best/current route, dashed for upcoming routes
