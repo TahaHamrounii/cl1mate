@@ -40,6 +40,13 @@ const createMarkerIcon = (color, text) =>
 
 const DEPOT_COORDS = [33.693396, 10.929588];
 
+const userLocationIcon = L.divIcon({
+  html: `<div style="background-color: #00B8D9; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; border: 2px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3); font-size: 16px;">👤</div>`,
+  className: 'custom-user-location-icon',
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
 export function MunicipalityDashboardView() {
   const { user } = useAuth();
   const [routesData, setRoutesData] = useState(null);
@@ -50,6 +57,33 @@ export function MunicipalityDashboardView() {
 
   const [collectedWeight, setCollectedWeight] = useState('');
   const [collectedQuality, setCollectedQuality] = useState('');
+
+  const [userGpsCoords, setUserGpsCoords] = useState(null);
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserGpsCoords([latitude, longitude]);
+        },
+        (error) => console.error(error),
+        { enableHighAccuracy: true }
+      );
+
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setUserGpsCoords([latitude, longitude]);
+        },
+        (error) => console.error(error),
+        { enableHighAccuracy: true }
+      );
+
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+    return undefined;
+  }, []);
 
   const fetchRoutes = async () => {
     try {
@@ -129,10 +163,12 @@ export function MunicipalityDashboardView() {
     .reduce((acc, r) => acc + r.weight, 0);
 
   // Compute ETAs for Municipality route stops
-  let lastDepTime = dayjs().set('hour', 8).set('minute', 0);
+  // Dynamic: starts from current time, average speed 50 km/h, service time 10 mins per stop
+  const AVG_SPEED_KMH = 50;
+  let lastDepTime = dayjs();
   const routeWithTimes = muniRoute.map((stop) => {
-    const dist = stop.distanceFromLastStop || 0;
-    const travelTimeMin = Math.round(dist / (40 / 60));
+    const dist = stop.distanceFromLastStop || 0; // km
+    const travelTimeMin = Math.round((dist / AVG_SPEED_KMH) * 60);
     const arrivalTime = lastDepTime.add(travelTimeMin, 'minute');
     const departureTime = arrivalTime.add(10, 'minute');
     lastDepTime = departureTime;
@@ -142,10 +178,11 @@ export function MunicipalityDashboardView() {
       arrivalTime: arrivalTime.format('hh:mm A'),
       departureTime: departureTime.format('hh:mm A'),
       travelTimeMin,
+      distanceKm: dist,
     };
   });
 
-  const activePath = [DEPOT_COORDS, ...muniRoute.map((r) => [r.location.lat, r.location.lng])];
+  const activePath = muniRoute.map((r) => [r.location.lat, r.location.lng]);
 
   return (
     <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto', px: { xs: 2, md: 5 }, py: 4 }}>
@@ -207,12 +244,14 @@ export function MunicipalityDashboardView() {
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            {/* Depot Marker */}
-            <Marker position={DEPOT_COORDS} icon={createMarkerIcon('#FF3030', 'Depot')}>
-              <Popup>
-                <Typography variant="subtitle2">Depot</Typography>
-              </Popup>
-            </Marker>
+            {/* Live User Current Location Marker */}
+            {userGpsCoords && (
+              <Marker position={userGpsCoords} icon={userLocationIcon}>
+                <Popup>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>📍 Your Current Location</Typography>
+                </Popup>
+              </Marker>
+            )}
 
             {/* Municipality Route Markers (Orange) */}
             {routeWithTimes.map((stop, idx) => {

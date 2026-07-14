@@ -16,11 +16,17 @@ import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import InputLabel from '@mui/material/InputLabel';
+import IconButton from '@mui/material/IconButton';
 import FormControl from '@mui/material/FormControl';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
 import DialogActions from '@mui/material/DialogActions';
+import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
+
+import { fDateTime } from 'src/utils/format-time';
+
+import { Iconify } from 'src/components/iconify';
 
 // Custom icons for Leaflet map
 const createMarkerIcon = (color, text) =>
@@ -32,6 +38,13 @@ const createMarkerIcon = (color, text) =>
   });
 
 const DEPOT_COORDS = [33.693396, 10.929588];
+
+const truckIcon = L.divIcon({
+  html: `<div style="background-color: #1890FF; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; border: 2px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.35); font-size: 18px; z-index: 1000;">🚚</div>`,
+  className: 'custom-truck-icon',
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+});
 
 export function AdminDashboardView() {
   const [data, setData] = useState(null);
@@ -61,6 +74,9 @@ export function AdminDashboardView() {
   const [newHotelLat, setNewHotelLat] = useState('');
   const [newHotelLng, setNewHotelLng] = useState('');
   const [newHotelPhone, setNewHotelPhone] = useState('');
+
+  // Hotel detail modal
+  const [viewHotel, setViewHotel] = useState(null);
 
   const fetchDashboardData = async () => {
     try {
@@ -94,6 +110,9 @@ export function AdminDashboardView() {
 
   useEffect(() => {
     fetchDashboardData();
+    // Poll every 30s to pick up live driver location updates
+    const intervalId = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(intervalId);
   }, []);
 
   const handleUpdateConfig = async () => {
@@ -241,9 +260,23 @@ export function AdminDashboardView() {
   const completedIds = completedToday.map((r) => r.hotel.toString());
   const stopsDoneCount = pnudRoute.filter((r) => completedIds.includes(r.id)).length;
 
-  // Actual paths mapping
-  const pnudCoordinates = pnudRoute.map((stop) => [stop.location.lat, stop.location.lng]);
-  const activePath = pnudCoordinates.length > 0 ? [DEPOT_COORDS, ...pnudCoordinates, DEPOT_COORDS] : [];
+  // Runs definition
+  const pnudRuns = routesData?.pnud?.runs || [];
+
+  // Calculate truck's current location (at the last completed stop, or at depot)
+  const getLastCompletedCoords = () => {
+    for (let i = pnudRoute.length - 1; i >= 0; i--) {
+      if (completedIds.includes(pnudRoute[i].id)) {
+        return [pnudRoute[i].location.lat, pnudRoute[i].location.lng];
+      }
+    }
+    return DEPOT_COORDS;
+  };
+  const truckCoords = getLastCompletedCoords();
+  const driverLiveCoords = data?.config?.activeDriver?.currentLocation?.lat && data?.config?.activeDriver?.currentLocation?.lng
+    ? [data.config.activeDriver.currentLocation.lat, data.config.activeDriver.currentLocation.lng]
+    : null;
+  const adminTruckCoords = driverLiveCoords || truckCoords;
 
   return (
     <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto', px: { xs: 2, md: 5 }, py: 4, display: 'flex', flexDirection: 'column', alignSelf: 'center' }}>
@@ -369,10 +402,38 @@ export function AdminDashboardView() {
                   );
                 })}
 
-                {/* Polyline */}
-                {activePath.length > 1 && (
-                  <Polyline positions={activePath} color="#22C55E" weight={4} dashArray="5, 10" />
-                )}
+                {/* Path lines - multiple PNUD runs shown in different colors */}
+                {pnudRuns.map((run, runIdx) => {
+                  const runPath = [
+                    DEPOT_COORDS,
+                    ...run.route.map((stop) => [stop.location.lat, stop.location.lng]),
+                    DEPOT_COORDS,
+                  ];
+                  // Colors matching requirement: Run 1 = Green, Run 2 = Blue, Run 3 = Orange, Run 4 = Purple
+                  const runColors = ['#22C55E', '#1890FF', '#FFAB00', '#8E33FF', '#006C9C', '#B71D18'];
+                  const color = runColors[runIdx % runColors.length];
+                  const isFirstRun = runIdx === 0;
+
+                  return (
+                    <Polyline
+                      key={run.runNumber}
+                      positions={runPath}
+                      color={color}
+                      weight={4}
+                      dashArray={isFirstRun ? 'none' : '5, 10'} // Solid for the best/current route, dashed for upcoming routes
+                    />
+                  );
+                })}
+
+                {/* Truck Current Location Marker */}
+                <Marker position={adminTruckCoords} icon={truckIcon}>
+                  <Popup>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>🚚 Collection Truck</Typography>
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      {driverLiveCoords ? 'Live GPS Location' : 'Last Completed Stop Location'}
+                    </Typography>
+                  </Popup>
+                </Marker>
               </MapContainer>
             </Box>
           </Card>
@@ -496,19 +557,22 @@ export function AdminDashboardView() {
               }}
             >
               {hotels.map((hotel) => (
-                <Card key={hotel._id} variant="outlined" sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+                <Card key={hotel._id} variant="outlined" sx={{ p: 3.75, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 0 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>
                       {hotel.name}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                       Weight: <strong>{hotel.sensors?.weight || 0} kg</strong> &bull; Organic: <strong>{hotel.sensors?.organicMatter || 0}%</strong>
                     </Typography>
                   </Box>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="caption" sx={{ bgcolor: hotel.sensors?.status === 'offline' ? 'error.lighter' : 'success.lighter', color: hotel.sensors?.status === 'offline' ? 'error.dark' : 'success.dark', px: 1, py: 0.5, borderRadius: 0.5, fontWeight: 'bold' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+                    <Typography variant="caption" sx={{ bgcolor: hotel.sensors?.status === 'offline' ? 'error.lighter' : 'success.lighter', color: hotel.sensors?.status === 'offline' ? 'error.dark' : 'success.dark', px: 1.5, py: 0.5, borderRadius: 0.75, fontWeight: 'bold', fontSize: 13 }}>
                       {hotel.sensors?.status || 'online'}
                     </Typography>
+                    <IconButton onClick={() => setViewHotel(hotel)} sx={{ color: 'text.secondary' }}>
+                      <Iconify icon="solar:eye-bold" width={22} />
+                    </IconButton>
                   </Box>
                 </Card>
               ))}
@@ -628,6 +692,117 @@ export function AdminDashboardView() {
           </Button>
           <Button variant="contained" color="primary" onClick={handleRegisterHotel}>
             Add Hotel Profile
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Hotel Detail View Modal */}
+      <Dialog open={!!viewHotel} onClose={() => setViewHotel(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Iconify icon="solar:buildings-2-bold" width={28} />
+            {viewHotel?.name}
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: viewHotel?.sensors?.status === 'offline' ? 'error.main' : 'success.main' }} />
+            <Typography variant="caption" sx={{ fontWeight: 'bold', textTransform: 'capitalize' }}>
+              Sensors {viewHotel?.sensors?.status || 'online'}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {viewHotel && (
+            <Stack spacing={3} sx={{ mt: 1 }}>
+              {/* Sensor Gauges Row */}
+              <Box sx={{ display: 'flex', gap: 3 }}>
+                {/* Weight Gauge */}
+                <Card sx={{ p: 2.5, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>Current Waste Weight</Typography>
+                  <Box sx={{ position: 'relative', display: 'inline-flex', mb: 1 }}>
+                    <CircularProgress
+                      variant="determinate"
+                      value={Math.min(((viewHotel.sensors?.weight || 0) / 1200) * 100, 100)}
+                      size={90}
+                      thickness={5}
+                      color={(viewHotel.sensors?.weight || 0) > 1000 ? 'error' : 'success'}
+                    />
+                    <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                      <Typography variant="h6">{viewHotel.sensors?.weight || 0}</Typography>
+                      <Typography variant="caption" color="text.secondary">kg</Typography>
+                    </Box>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary">Max: 1,200 kg</Typography>
+                </Card>
+
+                {/* Organic Quality Gauge */}
+                <Card sx={{ p: 2.5, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1.5 }}>Organic Quality</Typography>
+                  <Box sx={{ position: 'relative', display: 'inline-flex', mb: 1 }}>
+                    <CircularProgress
+                      variant="determinate"
+                      value={viewHotel.sensors?.organicMatter || 0}
+                      size={90}
+                      thickness={5}
+                      color={(viewHotel.sensors?.organicMatter || 0) >= 95 ? 'primary' : 'warning'}
+                    />
+                    <Box sx={{ top: 0, left: 0, bottom: 0, right: 0, position: 'absolute', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Typography variant="h6">{viewHotel.sensors?.organicMatter || 0}%</Typography>
+                    </Box>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary">PNUD threshold: 95%</Typography>
+                </Card>
+              </Box>
+
+              {/* PNUD Qualification Bar */}
+              <Card sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="subtitle2">PNUD Qualification</Typography>
+                  <Typography variant="subtitle2" sx={{ color: (viewHotel.sensors?.organicMatter || 0) >= 95 && (viewHotel.sensors?.weight || 0) >= (viewHotel.config?.minWeightThreshold || 100) ? 'success.main' : 'warning.main', fontWeight: 'bold' }}>
+                    {(viewHotel.sensors?.organicMatter || 0) >= 95 && (viewHotel.sensors?.weight || 0) >= (viewHotel.config?.minWeightThreshold || 100) ? '✅ Qualifies' : '⚠️ Does not qualify'}
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={Math.min((viewHotel.sensors?.organicMatter || 0), 100)}
+                  color={(viewHotel.sensors?.organicMatter || 0) >= 95 ? 'success' : 'warning'}
+                  sx={{ height: 8, borderRadius: 4 }}
+                />
+              </Card>
+
+              {/* Details Grid */}
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Card sx={{ p: 2, flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Location</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                    {viewHotel.location?.lat?.toFixed(4)}, {viewHotel.location?.lng?.toFixed(4)}
+                  </Typography>
+                </Card>
+                <Card sx={{ p: 2, flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Min Weight Threshold</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{viewHotel.config?.minWeightThreshold || 100} kg</Typography>
+                </Card>
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Card sx={{ p: 2, flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Last Sensor Update</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                    {viewHotel.sensors?.lastUpdated ? fDateTime(viewHotel.sensors.lastUpdated) : 'Never'}
+                  </Typography>
+                </Card>
+                <Card sx={{ p: 2, flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Linked Account</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                    {viewHotel.user?.email || viewHotel.user?.name || 'N/A'}
+                  </Typography>
+                </Card>
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button variant="outlined" color="inherit" onClick={() => setViewHotel(null)}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>

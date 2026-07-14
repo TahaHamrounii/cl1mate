@@ -41,6 +41,13 @@ const createMarkerIcon = (color, text) =>
 
 const DEPOT_COORDS = [33.693396, 10.929588];
 
+const truckIcon = L.divIcon({
+  html: `<div style="background-color: #1890FF; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; border: 2px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.35); font-size: 18px; z-index: 1000;">🚚</div>`,
+  className: 'custom-truck-icon',
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+});
+
 export function DriverDashboardView() {
   const { user } = useAuth();
   const [routesData, setRoutesData] = useState(null);
@@ -53,6 +60,59 @@ export function DriverDashboardView() {
   // Form states for recording collection
   const [collectedWeight, setCollectedWeight] = useState('');
   const [collectedQuality, setCollectedQuality] = useState('');
+
+  const [driverGpsCoords, setDriverGpsCoords] = useState(null);
+
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          setDriverGpsCoords([latitude, longitude]);
+          try {
+            const token = localStorage.getItem('token');
+            await fetch('http://localhost:5000/api/auth/current-location', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ lat: latitude, lng: longitude }),
+            });
+          } catch (err) {
+            console.error('Failed to sync location to server:', err);
+          }
+        },
+        (error) => console.error(error),
+        { enableHighAccuracy: true }
+      );
+
+      const watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          setDriverGpsCoords([latitude, longitude]);
+          try {
+            const token = localStorage.getItem('token');
+            await fetch('http://localhost:5000/api/auth/current-location', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ lat: latitude, lng: longitude }),
+            });
+          } catch (err) {
+            console.error('Failed to sync location to server:', err);
+          }
+        },
+        (error) => console.error(error),
+        { enableHighAccuracy: true }
+      );
+
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+    return undefined;
+  }, []);
 
   const fetchRoutes = async () => {
     try {
@@ -151,11 +211,12 @@ export function DriverDashboardView() {
   const remainingCapacity = maxTruckCapacity - currentLoad;
 
   // Calculate route metrics (ETA, Departure)
-  // Assumes average speed of 40km/h (0.67km/min), service time of 10mins, start at 8:00 AM
-  let lastDepTime = dayjs().set('hour', 8).set('minute', 0);
+  // Dynamic: starts from current time, average speed 50 km/h, service time 10 mins per stop
+  const AVG_SPEED_KMH = 50;
+  let lastDepTime = dayjs();
   const routeWithTimes = pnudRoute.map((stop) => {
-    const dist = stop.distanceFromLastStop || 0;
-    const travelTimeMin = Math.round(dist / (40 / 60));
+    const dist = stop.distanceFromLastStop || 0; // km
+    const travelTimeMin = Math.round((dist / AVG_SPEED_KMH) * 60);
     const arrivalTime = lastDepTime.add(travelTimeMin, 'minute');
     const departureTime = arrivalTime.add(10, 'minute');
     lastDepTime = departureTime;
@@ -165,11 +226,23 @@ export function DriverDashboardView() {
       arrivalTime: arrivalTime.format('hh:mm A'),
       departureTime: departureTime.format('hh:mm A'),
       travelTimeMin,
+      distanceKm: dist,
     };
   });
 
-  // Polyline path coordinates (depot -> pnud route stops)
-  const activePath = [DEPOT_COORDS, ...pnudRoute.map((r) => [r.location.lat, r.location.lng])];
+  // Runs definition
+  const pnudRuns = routesData?.pnud?.runs || [];
+
+  // Calculate truck's current location (prefer live driver GPS coordinates, fallback to last completed stop or depot)
+  const getLastCompletedCoords = () => {
+    for (let i = routeWithTimes.length - 1; i >= 0; i--) {
+      if (completedList.includes(routeWithTimes[i].id)) {
+        return [routeWithTimes[i].location.lat, routeWithTimes[i].location.lng];
+      }
+    }
+    return DEPOT_COORDS;
+  };
+  const truckCoords = driverGpsCoords || getLastCompletedCoords();
 
   return (
     <Box sx={{ width: '100%', maxWidth: 1600, mx: 'auto', px: { xs: 2, md: 5 }, py: 4 }}>
@@ -264,6 +337,11 @@ export function DriverDashboardView() {
                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                       Weight: {stop.weight} kg &bull; Organic: {stop.organicMatter}%
                     </Typography>
+                    {stop.distanceKm > 0 && (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                        📏 {stop.distanceKm.toFixed(1)} km away &bull; ~{stop.travelTimeMin} min drive
+                      </Typography>
+                    )}
                     {stop.arrivalTime && (
                       <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontWeight: 'bold' }}>
                         ETA: {stop.arrivalTime}
@@ -293,15 +371,41 @@ export function DriverDashboardView() {
               </Marker>
             ))}
 
-            {/* Path lines - only for PNUD */}
-            {activePath.length > 1 && (
-              <Polyline
-                positions={activePath}
-                color="#22C55E"
-                weight={4}
-                dashArray="5, 10"
-              />
-            )}
+            {/* Path lines - multiple PNUD runs shown in different colors */}
+            {pnudRuns.map((run, runIdx) => {
+              const isFirstRun = runIdx === 0;
+              const startCoord = isFirstRun ? truckCoords : DEPOT_COORDS;
+              const runPath = [
+                startCoord,
+                ...run.route.map((stop) => [stop.location.lat, stop.location.lng]),
+                DEPOT_COORDS,
+              ];
+              // Colors matching requirement: Run 1 = Green, Run 2 = Blue, Run 3 = Orange, Run 4 = Purple
+              const runColors = ['#22C55E', '#1890FF', '#FFAB00', '#8E33FF', '#006C9C', '#B71D18'];
+              const color = runColors[runIdx % runColors.length];
+
+              return (
+                <Polyline
+                  key={run.runNumber}
+                  positions={runPath}
+                  color={color}
+                  weight={4}
+                  dashArray={isFirstRun ? 'none' : '5, 10'} // Solid for the best/current route, dashed for upcoming routes
+                />
+              );
+            })}
+
+            {/* Truck Current Location Marker */}
+            <Marker position={truckCoords} icon={truckIcon}>
+              <Popup>
+                <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>🚚 Collection Truck</Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                  {truckCoords[0] === DEPOT_COORDS[0] && truckCoords[1] === DEPOT_COORDS[1]
+                    ? 'At PNUD Methanization Depot'
+                    : 'On active collection run'}
+                </Typography>
+              </Popup>
+            </Marker>
           </MapContainer>
         </Box>
 
@@ -369,7 +473,7 @@ export function DriverDashboardView() {
 
                   {/* Details row */}
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
-                    <Box sx={{ display: 'flex', gap: 3 }}>
+                    <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                         <Typography variant="caption" color="text.secondary">Weight</Typography>
                         <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{stop.weight} kg</Typography>
@@ -378,6 +482,12 @@ export function DriverDashboardView() {
                         <Typography variant="caption" color="text.secondary">Organic Matter</Typography>
                         <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{stop.organicMatter}%</Typography>
                       </Box>
+                      {stop.distanceKm > 0 && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                          <Typography variant="caption" color="text.secondary">Distance</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{stop.distanceKm.toFixed(1)} km</Typography>
+                        </Box>
+                      )}
                       <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                         <Typography variant="caption" color="text.secondary">ETA</Typography>
                         <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>{stop.arrivalTime}</Typography>

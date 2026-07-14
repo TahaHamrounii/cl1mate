@@ -191,10 +191,42 @@ const updateUserProfile = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Update user live location coordinates
+ * @route   PUT /api/auth/current-location
+ * @access  Private
+ */
+const updateUserLocation = async (req, res, next) => {
+  try {
+    const { lat, lng } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (user) {
+      user.currentLocation = {
+        lat: Number(lat),
+        lng: Number(lng),
+        updatedAt: new Date(),
+      };
+      await user.save();
+
+      res.json({
+        success: true,
+        message: 'Location updated successfully',
+      });
+    } else {
+      res.status(404);
+      return next(new Error('User not found'));
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
   getUserProfile,
   updateUserAvatar,
   updateUserProfile,
+  updateUserLocation,
 };

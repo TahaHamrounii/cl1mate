@@ -11,7 +11,7 @@ const { optimizeRoutes } = require('../utils/routeOptimizer');
 const getOptimizedDailyRoutes = async (req, res, next) => {
   try {
     // 1. Fetch system configurations
-    let config = await SystemConfig.findOne().sort({ createdAt: -1 });
+    let config = await SystemConfig.findOne().sort({ createdAt: -1 }).populate('activeDriver');
     if (!config) {
       // Default configurations if none created in DB yet
       config = await SystemConfig.create({
@@ -23,7 +23,8 @@ const getOptimizedDailyRoutes = async (req, res, next) => {
 
     // 1.5 Enforce active driver restriction
     if (req.user.role === 'driver' && config.activeDriver) {
-      if (config.activeDriver.toString() !== req.user._id.toString()) {
+      const activeDriverId = config.activeDriver._id || config.activeDriver;
+      if (activeDriverId.toString() !== req.user._id.toString()) {
         return res.status(403).json({
           success: false,
           code: 'NOT_ACTIVE_DRIVER',
@@ -54,6 +55,7 @@ const getOptimizedDailyRoutes = async (req, res, next) => {
           truckCapacityTons: config.truckCapacityTons,
           minWeightThreshold: config.minWeightThreshold,
           minOrganicPercentage: config.minOrganicPercentage,
+          activeDriver: config.activeDriver,
         },
         pnud: routes.pnud,
         municipality: routes.municipality,

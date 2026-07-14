@@ -62,6 +62,11 @@ const UserSchema = new mongoose.Schema(
     zipCode: {
       type: String,
     },
+    currentLocation: {
+      lat: { type: Number },
+      lng: { type: Number },
+      updatedAt: { type: Date },
+    },
   },
   {
     timestamps: true,

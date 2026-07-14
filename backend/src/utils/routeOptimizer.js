@@ -62,58 +62,72 @@ const optimizeRoutes = (hotels, config, depotLocation = { lat: 33.8075, lng: 10.
     }
   });
 
-  // 2. PNUD Route Optimization (Nearest Neighbor with Capacity Constraint)
-  const pnudRoute = [];
-  let currentLoad = 0;
-  let currentPosition = { ...depotLocation };
+  // 2. PNUD Route Optimization (Nearest Neighbor with Multi-Run Capacity Constraints)
+  const pnudRuns = [];
   let remainingPnudHotels = [...pnudHotels];
 
   while (remainingPnudHotels.length > 0) {
-    // Find nearest hotel to current position
-    let nearestIndex = -1;
-    let minDistance = Infinity;
+    const currentRun = [];
+    let currentLoad = 0;
+    let currentPosition = { ...depotLocation };
+    let hasAddedToRun = true;
 
-    for (let i = 0; i < remainingPnudHotels.length; i++) {
-      const dist = getDistance(
-        currentPosition.lat,
-        currentPosition.lng,
-        remainingPnudHotels[i].location.lat,
-        remainingPnudHotels[i].location.lng
-      );
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearestIndex = i;
+    while (hasAddedToRun) {
+      hasAddedToRun = false;
+      let nearestIndex = -1;
+      let minDistance = Infinity;
+
+      for (let i = 0; i < remainingPnudHotels.length; i++) {
+        const candidate = remainingPnudHotels[i];
+        if (currentLoad + candidate.weight <= maxCapacityKg) {
+          const dist = getDistance(
+            currentPosition.lat,
+            currentPosition.lng,
+            candidate.location.lat,
+            candidate.location.lng
+          );
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearestIndex = i;
+          }
+        }
+      }
+
+      if (nearestIndex !== -1) {
+        const candidate = remainingPnudHotels[nearestIndex];
+        currentLoad += candidate.weight;
+        currentRun.push({
+          ...candidate,
+          distanceFromLastStop: minDistance,
+          cumulativeLoad: currentLoad,
+          runNumber: pnudRuns.length + 1,
+        });
+        currentPosition = { ...candidate.location };
+        remainingPnudHotels.splice(nearestIndex, 1);
+        hasAddedToRun = true;
       }
     }
 
-    if (nearestIndex === -1) break;
-
-    const candidate = remainingPnudHotels[nearestIndex];
-
-    // Check if adding candidate exceeds daily capacity
-    if (currentLoad + candidate.weight <= maxCapacityKg) {
-      currentLoad += candidate.weight;
-      pnudRoute.push({
+    if (currentRun.length === 0 && remainingPnudHotels.length > 0) {
+      // Nearest candidate itself exceeds maxCapacityKg. Redirect to municipality
+      const candidate = remainingPnudHotels[0];
+      municipalHotels.push({
         ...candidate,
-        distanceFromLastStop: minDistance,
-        cumulativeLoad: currentLoad,
+        reason: 'exceeds_truck_capacity',
+        details: `Hotel waste weight (${candidate.weight}kg) exceeds truck capacity (${maxCapacityKg}kg).`,
       });
-      // Move current position to this hotel
-      currentPosition = { ...candidate.location };
-      // Remove from list
-      remainingPnudHotels.splice(nearestIndex, 1);
-    } else {
-      // Exceeds daily truck capacity! Redirect all remaining eligible hotels to municipality
-      remainingPnudHotels.forEach((h) => {
-        municipalHotels.push({
-          ...h,
-          reason: 'truck_capacity',
-          details: `Daily PNUD capacity (${config.truckCapacityTons} tons) reached. Redirected from PNUD.`,
-        });
+      remainingPnudHotels.splice(0, 1);
+    } else if (currentRun.length > 0) {
+      pnudRuns.push({
+        runNumber: pnudRuns.length + 1,
+        route: currentRun,
+        totalLoadKg: currentLoad,
       });
-      break;
     }
   }
+
+  const pnudRoute = pnudRuns.reduce((acc, run) => acc.concat(run.route), []);
+  const totalPnudLoad = pnudRuns.reduce((acc, run) => acc + run.totalLoadKg, 0);
 
   // 3. Municipality Route Optimization (Simple Nearest Neighbor for the municipal truck if needed)
   const municipalityRoute = [];
@@ -152,8 +166,8 @@ const optimizeRoutes = (hotels, config, depotLocation = { lat: 33.8075, lng: 10.
   return {
     pnud: {
       route: pnudRoute,
-      totalLoadKg: currentLoad,
-      remainingCapacityKg: maxCapacityKg - currentLoad,
+      runs: pnudRuns,
+      totalLoadKg: totalPnudLoad,
     },
     municipality: {
       route: municipalityRoute,
